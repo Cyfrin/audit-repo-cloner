@@ -18,3 +18,4 @@ requests==2.29.0
 tomli==2.0.1
 urllib3==1.26.15
 wrapt==1.15.0
+pyyaml==6.0

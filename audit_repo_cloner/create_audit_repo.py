@@ -1,184 +1,283 @@
 import os
 import shutil
 from datetime import date
-from github import Github, GithubException
+from typing import List, Optional, Tuple
+from github import Github, GithubException, Repository
 from dotenv import load_dotenv
-from copy_issue_template import copy_issue_template
-from replace_labels import replace_labels
-from create_action import create_action
+from .create_action import create_action
+import click
+import subprocess
+import logging as log
+import yaml
+from .__version__ import __version__, __title__
+
+from .constants import (
+    ISSUE_TEMPLATE,
+    DEFAULT_LABELS,
+    SEVERITY_DATA,
+    TRELLO_LABELS,
+    TRELLO_COLUMNS,
+)
+
+log.basicConfig(level=log.INFO)
 
 load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
-ORGANIZATION = os.getenv("ORGANIZATION")
+# Globals are shit. We should refactor again in the future...
+REPORT_BRANCH_NAME = "report"
+MAIN_BRANCH_NAME = "main"
+SUBTREE_URL = "https://github.com/ChainAccelOrg/report-generator-template.git"
+SUBTREE_NAME = "report-generator-template"
+SUBTREE_PATH_PREFIX = "cyfrin-report"
+GITHUB_WORKFLOW_PATH = ".github"
+GITHUB_WORKFLOW_DELETE_MESSAGE = "Remove GitHub Actions"
+GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 
-def copy_files_recursive(source_repo, repo, commit_message, path=""):
-    for file in source_repo.get_contents(path):
-        if file.type == "file":
-            print(f"Copying {file.path}...")
-            if file.name == "README.md":
-                repo.update_file(file.path, commit_message, file.decoded_content, repo.get_contents("README.md").sha)
-            else:
-                if file.decoded_content is not None:
-                    repo.create_file(file.path, commit_message, file.decoded_content)
-                else:
-                    print(f"Skipping {file.path} (unsupported encoding)")
-        elif file.type == "dir":
-            print(f"Copying {file.path}...")
-            copy_files_recursive(source_repo, repo, commit_message, file.path)
 
-def main():
-    # Prompt user for input
-    print("Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n")
-    while True:
-        # source_username = input("1) Source repo owner username: ")
-        # source_repo_name = input("2) Source repo name: ")
-        # source_repo_branch = input("3) Source repo branch: ")
-        # repo_name = input("4) New repo name: ")
-        source_url = input("1) Source repo url: ")
-        # Remove the .git extension if it exists
-        source_url = source_url.rstrip(".git")
+@click.command()
+@click.version_option(
+    version=__version__,
+    prog_name=__title__,
+)
+@click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
+@click.option(
+    "--prompt/--no-prompt",
+    default=True,
+    help="Have this CLI be interactive by prompting or pass in args via the command.",
+)
+@click.option("--source-url", default=None, help="Source repository URL.")
+@click.option(
+    "--auditors", default=None, help="Names of the auditors (separated by spaces)."
+)
+@click.option(
+    "--github-token",
+    default=os.getenv("GITHUB_TOKEN"),
+    help="Your GitHub developer token to make API calls.",
+)
+@click.option(
+    "--organization",
+    default=None,
+    help="Your GitHub developer token to make API calls.",
+)
+@click.option(
+    "--repo-path-dir",
+    default="/tmp",
+    help="The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.",
+)
+def create_audit_repo(
+    config: str,
+    prompt: bool,
+    source_url: str,
+    auditors: str,
+    github_token: str,
+    organization: str,
+    repo_path_dir: str,
+):
+    """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
+    If the prompt flag is set to true (default), the user will be prompted for the source repository URL and auditor names.
+    If the prompt flag is set to false, the function will use the provided click arguments for the source repository URL and auditor names.
 
-        # Split the URL by "/"
-        url_parts = source_url.split("/")
+    Args:
+        prompt (bool): Determines if the script should use default prompts for input or the provided click arguments.
+        source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
+        auditors (str): A space-separated list of auditor names who will be assigned to the audit.
+        github_token (str): The GitHub developer token to make API calls.
+        organization (str): The GitHub organization to create the audit repository in.
+        repo_path_dir (str): The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.
 
-        # Extract the username and repo name from the URL
-        source_username = url_parts[-2]
-        source_repo_name = url_parts[-1]
-        
-        source_repo_branch = "main"
-        auditors = input("2) Enter the names of the auditors (separated by spaces): ")
+    Returns:
+        None
+    """
+    if config:
+        (source_url, auditors, github_token, organization) = load_config(
+            config,
+            source_url=source_url,
+            auditors=auditors,
+            github_token=github_token,
+            organization=organization,
+        )
+    if prompt:
+        source_url, auditors, organization = prompt_for_details(
+            source_url, auditors, organization
+        )
+    if not source_url or not auditors or not organization:
+        raise click.UsageError(
+            "Source URL, organization, and auditors must be provided either through --prompt, config, or as options."
+        )
+    if not github_token:
+        raise click.UsageError(
+            "GitHub token must be provided either through config or environment variable."
+        )
+    source_url = source_url.rstrip(".git")
+    url_parts = source_url.split("/")
+    source_username = url_parts[-2]
+    source_repo_name = url_parts[-1]
+    auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
 
-        if source_username and source_repo_name and source_repo_branch and auditors:
-            auditors = [a.strip() for a in auditors.split(" ")]
-            break
-        print("Please fill in all the details.")
+    github_object = Github(github_token)
+    github_org = github_object.get_organization(organization)
 
-    # Create new repository using PyGithub
-    g = Github(TOKEN)
-    org = g.get_organization(ORGANIZATION)
+    repo = get_or_clone_repo(
+        github_object,
+        github_org,
+        organization,
+        source_repo_name,
+        source_username,
+        repo_path_dir,
+    )
 
+    repo = remove_github_actions(repo, repo_path_dir)
+    repo = add_issue_template_to_repo(repo)
+    repo = replace_labels_in_repo(repo)
+    repo = create_branches_for_auditors(repo, auditors_list)
+    main_branch = repo.get_branch(MAIN_BRANCH_NAME)
+    repo = create_report_branch(repo, main_branch)
+
+    subtree_relative_path = f"./{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
+
+    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
+    if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
+        add_subtree(repo, source_repo_name, repo_path_dir)
+    set_up_ci(repo, subtree_relative_path)
+    set_up_project_board(repo, source_username, source_repo_name)
+    print("Done!")
+
+
+def remove_github_actions(repo: Repository, repo_path_dir: str) -> Repository:
+    folder_path = f"{repo_path_dir}/{GITHUB_WORKFLOW_PATH}"
     try:
-        repo = g.get_repo(f"{ORGANIZATION}/{source_repo_name}")
-    except GithubException as e:
-        if e.status == 404:
-            repo = None
+        contents = repo.get_contents(folder_path, ref=repo.default_branch)
+    except:
+        log.info(f"Folder '{folder_path}' not found.")
+        return repo
+
+    if not contents:
+        log.info(f"Folder '{folder_path}' is empty.")
+        return repo
+
+    for content in contents:
+        if content.type == "dir":
+            delete_folder_if_exists(repo, content.path)
         else:
-            print(f"Error checking if repository exists: {e}")
-            exit()
+            repo.delete_file(
+                content.path,
+                GITHUB_WORKFLOW_DELETE_MESSAGE,
+                content.sha,
+                branch=repo.default_branch,
+            )
+    print(f"Folder '{folder_path}' has been deleted.")
+    return repo
 
-    if repo is None:
-        try:
-            repo = org.create_repo(source_repo_name, private=True)
-        except GithubException as e:
-            if e.status == 403:
-                print("Error creating repository: You do not have the necessary permissions to create a repository. Please make sure your token has the 'repo' scope.")
-            else:
-                print(f"Error creating repository: {e}")
-            exit()
 
-        # Clone the source repo and create new repo
-        try:
-            print(f"Cloning {source_repo_name}...")
-
-            os.chdir("/tmp")
-            os.system(f"git clone https://github.com/{source_username}/{source_repo_name}.git {source_repo_name}")
-            os.chdir(source_repo_name)
-            os.system("git commit -m 'initial commit")
-            os.system(f"git remote set-url origin https://github.com/{ORGANIZATION}/{source_repo_name}.git")
-            os.system("git push -u origin main")
-        
-        except GithubException as e:
-            print(f"Error cloning repository: {e}")
-            repo.delete()
-            exit()
-
-    # Copy issue template to new repo and replace labels
-    copy_issue_template(repo)
-    replace_labels(repo)
-
-    # Loop through the list of auditors and create a new branch for each
-    main_branch = repo.get_branch("main")
-    for auditor in auditors:
-        branch_name = f"audit/{auditor}"
-        try:
-            repo.create_git_ref(f"refs/heads/{branch_name}", main_branch.commit.sha)
-        except GithubException as e:
-            if e.status == 422:
-                print(f"Branch {branch_name} already exists. Skipping...")
-                continue
-            else:
-                print(f"Error creating branch: {e}")
-                exit()
-
-    # Create a new report branch on the new repo
-    branch_name = "report"
+def delete_folder_if_exists(repo, folder_path):
     try:
-        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
-    except GithubException as e:
-        if e.status == 422:
-            print(f"Branch {branch_name} already exists. Skipping...")
-        else:
-            print(f"Error creating branch: {e}")
-            exit()
+        contents = repo.get_contents(folder_path, ref=repo.default_branch)
+    except:
+        log.info(f"Folder '{folder_path}' not found.")
+        return
 
+    if not contents:
+        log.info(f"Folder '{folder_path}' is empty.")
+        return
+
+    for content in contents:
+        if content.type == "dir":
+            delete_folder_if_exists(repo, content.path, GITHUB_WORKFLOW_DELETE_MESSAGE)
+        else:
+            repo.delete_file(
+                content.path,
+                GITHUB_WORKFLOW_DELETE_MESSAGE,
+                content.sha,
+                branch=repo.default_branch,
+            )
+    log.info(f"Folder '{folder_path}' has been deleted.")
+
+
+def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
     # Add report-generator-template as a subtree
-    subtree_path_prefix = "cyfrin-report"
-    subtree_name = "report-generator-template"
-    subtree_path = f"{subtree_path_prefix}/{subtree_name}"
-    subtree_url = "https://github.com/ChainAccelOrg/report-generator-template.git"
+    subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
+
+    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
+    if not os.path.exists(repo_path):
+        os.makedirs(repo_path)
     try:
-        print(f"Adding subtree {subtree_name}...")
+        print(f"Adding subtree {SUBTREE_NAME}...")
 
         # Pull the latest changes from the origin
-        os.chdir(f"/tmp/{source_repo_name}")
-        os.system(f"git pull origin {branch_name} --rebase")
-        os.system(f"git checkout {branch_name}")
+        subprocess.run(
+            f"git -C {repo_path} pull origin {MAIN_BRANCH_NAME} --rebase",
+            shell=True,
+            check=True,
+        )
+        subprocess.run(
+            f"git -C {repo_path} checkout {MAIN_BRANCH_NAME}", shell=True, check=True
+        )
 
         # Add the subtree to the repo
-        os.system(f"git subtree add --prefix {subtree_path} {subtree_url} main --squash")
-        os.system("mkdir .github/workflows")
-        os.system(f"mv {subtree_path}/.github/workflows/main.yml .github/workflows/main.yml")
-
-        # Commit the changes
-        os.system(f"git add .")
-        os.system(f"git commit -m 'install: {subtree_name}'")
+        subprocess.run(
+            f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} main --squash",
+            shell=True,
+            check=True,
+        )
+        os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
+        subprocess.run(
+            f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml .github/workflows/main.yml",
+            shell=True,
+            check=True,
+        )
+        subprocess.run(f"git -C {repo_path} add .", shell=True, check=True)
+        subprocess.run(
+            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'",
+            shell=True,
+            check=True,
+        )
 
         # Push the changes back to the origin
-        os.system(f"git push")
+        subprocess.run(f"git -C {repo_path} push", shell=True, check=True)
 
         # Remove the local directory
-        os.chdir("..")
-        shutil.rmtree(source_repo_name)
-        
-        print(f"The subtree {subtree_name} has been added to {repo.name} on branch {branch_name}")
+        shutil.rmtree(repo_path)
+
+        print(
+            f"The subtree {SUBTREE_NAME} has been added to {repo.name} on branch {MAIN_BRANCH_NAME}"
+        )
 
     except GithubException as e:
-        print(f"Error adding subtree: {e}")
+        log.error(f"Error adding subtree: {e}")
         exit()
 
 
-    # Set up CI for report generation
+def set_up_ci(repo, subtree_path: str):
     try:
-        create_action(repo, "generate-report", subtree_path, branch_name, str(date.today()))
+        create_action(
+            repo,
+            GITHUB_WORKFLOW_ACTION_NAME,
+            subtree_path,
+            MAIN_BRANCH_NAME,
+            str(date.today()),
+        )
     except Exception as e:
-        print(f"Error occurred while setting up CI: {str(e)}")
-        print("Please set up CI manually using the report-generation.yml file.")
-    else:
-        print("CI for report generation has been set up successfully!")
+        log.warn(f"Error occurred while setting up CI: {str(e)}")
+        log.warn("Please set up CI manually using the report-generation.yml file.")
 
-    # Set up project board for collaboration
+
+def set_up_project_board(repo, source_username: str, source_repo_name: str):
     try:
         repo.edit(has_projects=True)
-        project = repo.create_project(f"{source_username}/{source_repo_name}", body=f"A collaborative board for the {source_username}/{source_repo_name} audit")
-        column_names = ["Archive", "Ideas", "Findings", "Peer Reviewed", "Report"]
-        labels = ["Archived", "Needs Discussion", "Self-Validated", "Co-Validated", "Report Ready"]
-        columns = [project.create_column(name) for name in column_names]
-        status_field = project.create_custom_field(name="Status", type="dropdown", possible_values=labels)
-        poc_field = project.create_custom_field(name="PoC", type="boolean")
+        project = repo.create_project(
+            f"{source_username}/{source_repo_name}",
+            body=f"A collaborative board for the {source_username}/{source_repo_name} audit",
+        )
+        columns = [project.create_column(name) for name in TRELLO_COLUMNS]
+        project.create_custom_field(
+            name="Status", type="dropdown", possible_values=TRELLO_LABELS
+        )
+        project.create_custom_field(name="PoC", type="boolean")
 
         # Define the column-to-label mapping
-        column_to_label_mapping = {column: label for column, label in zip(columns, labels)}
+        column_to_label_mapping = {
+            column: label for column, label in zip(columns, TRELLO_LABELS)
+        }
 
         # Define the workflow action
         def handle_card_move(event):
@@ -196,7 +295,212 @@ def main():
         print(f"Error occurred while setting up project board: {str(e)}")
         print("Please set up project board manually.")
 
-    print("Done!")
+
+def load_config(
+    config: str,
+    source_url: Optional[str] = None,
+    auditors: Optional[str] = None,
+    github_token: Optional[str] = None,
+    organization: Optional[str] = None,
+) -> Tuple[str, str, str, str]:
+    """Loads the configuration file and returns the values.
+
+    Args:
+        config (str): The path to the configuration file.
+        source_url (Optional[str], optional): The URL you want to download. Defaults to None.
+        auditors (Optional[str], optional): The list of auditors separated by spaces. Defaults to None.
+        github_token (Optional[str], optional): The GitHub token to use. Defaults to None.
+        organization (Optional[str], optional): The organization to make the github repo. Defaults to None.
+
+    Returns:
+        Tuple[str, str, str, str]: The source URL, auditors, GitHub token, and organization.
+    """
+    with open(config, "r") as f:
+        config_data = yaml.safe_load(f)
+        source_url = (
+            config_data.get("source_url", source_url)
+            if source_url is None
+            else source_url
+        )
+        auditors = (
+            config_data.get("auditors", auditors) if auditors is None else auditors
+        )
+        github_token = (
+            config_data.get("github_token", github_token)
+            if github_token is None
+            else github_token
+        )
+        organization = (
+            config_data.get("organization", organization)
+            if organization is None
+            else organization
+        )
+    return source_url, auditors, github_token, organization
+
+
+def prompt_for_details(source_url: str, auditors: str, organization: str):
+    while True:
+        if not source_url:
+            source_url = input(
+                "Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n1) Source repo url: "
+            )
+        if not auditors:
+            auditors = input(
+                "\n2) Enter the names of the auditors (separated by spaces): "
+            )
+        if not organization:
+            organization = input(
+                "\n3) Enter the name of the organization to create the audit repository in: "
+            )
+
+        if source_url and auditors and organization:
+            break
+        print("Please fill in all the details.")
+    return source_url, auditors, organization
+
+
+def get_or_clone_repo(
+    github_object,
+    github_org,
+    organization,
+    source_repo_name,
+    source_username,
+    repo_path_dir,
+) -> Repository:
+    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
+    try:
+        repo = github_object.get_repo(f"{organization}/{source_repo_name}")
+        print(f"Cloning {source_repo_name}...")
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                f"https://github.com/{organization}/{source_repo_name}.git",
+                repo_path,
+            ]
+        )
+        return repo
+    except GithubException as e:
+        if e.status == 404:
+            repo = None
+        else:
+            log.error(f"Error checking if repository exists: {e}")
+            exit()
+
+    if repo is None:
+        try:
+            repo = github_org.create_repo(source_repo_name, private=True)
+        except GithubException as e:
+            log.error(e)
+
+        try:
+            print(f"Cloning {source_repo_name}...")
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    f"https://github.com/{source_username}/{source_repo_name}.git",
+                    repo_path,
+                ]
+            )
+
+            subprocess.run(["git", "-C", repo_path, "commit", "-m", "initial commit"])
+
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    repo_path,
+                    "remote",
+                    "set-url",
+                    "origin",
+                    f"https://github.com/{organization}/{source_repo_name}.git",
+                ]
+            )
+
+            subprocess.run(["git", "-C", repo_path, "push", "-u", "origin", "main"])
+
+        except GithubException as e:
+            log.error(f"Error cloning repository: {e}")
+            repo.delete()
+            exit()
+    return repo
+
+
+def add_issue_template_to_repo(repo) -> Repository:
+    # Get the existing finding.md file, if it exists
+    try:
+        finding_file = repo.get_contents(".github/ISSUE_TEMPLATE/finding.md")
+    except GithubException as e:
+        finding_file = None
+
+    # If finding.md already exists, leave it be. Otherwise, create the file.
+    if finding_file is None:
+        repo.create_file(
+            ".github/ISSUE_TEMPLATE/finding.md", "finding.md", ISSUE_TEMPLATE
+        )
+    return repo
+
+
+def delete_default_labels(repo) -> Repository:
+    log.info("Deleting default labels...")
+    for label in DEFAULT_LABELS:
+        try:
+            label = repo.get_label(i)
+            label.delete()
+            log.info(f"Deleting {label}...")
+        except:
+            log.warn(f"Label {label} does not exist. Skipping...")
+    log.info("Finished deleting default labels")
+    return repo
+
+
+def create_new_labels(repo) -> Repository:
+    log.info("Creating new labels...")
+    for data in SEVERITY_DATA:
+        try:
+            repo.create_label(**data)
+        except:
+            log.warn(f"Issue creating label with data: {data}. Skipping...")
+    print("Finished creating new labels")
+    return repo
+
+
+def create_branches_for_auditors(repo, auditors_list) -> Repository:
+    main_branch = repo.get_branch(MAIN_BRANCH_NAME)
+    for auditor in auditors_list:
+        branch_name = f"audit/{auditor}"
+        try:
+            repo.create_git_ref(f"refs/heads/{branch_name}", main_branch.commit.sha)
+        except GithubException as e:
+            if e.status == 422:
+                log.warn(f"Branch {branch_name} already exists. Skipping...")
+                continue
+            else:
+                log.error(f"Error creating branch: {e}")
+                exit()
+    return repo
+
+
+def replace_labels_in_repo(repo) -> Repository:
+    repo = delete_default_labels(repo)
+    repo = create_new_labels(repo)
+    return repo
+
+
+def create_report_branch(repo, main_branch) -> Repository:
+    try:
+        repo.create_git_ref(
+            ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=main_branch.commit.sha
+        )
+    except GithubException as e:
+        if e.status == 422:
+            log.warn(f"Branch {REPORT_BRANCH_NAME} already exists. Skipping...")
+        else:
+            log.error(f"Error creating branch: {e}")
+            exit()
+    return repo
+
 
 if __name__ == "__main__":
-    main()
+    create_audit_repo()
