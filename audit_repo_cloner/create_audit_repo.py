@@ -56,8 +56,8 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 )
 @click.option(
     "--organization",
-    default=None,
-    help="Your GitHub developer token to make API calls.",
+    default=os.getenv("GITHUB_ORGANIZATION"),
+    help="Your GitHub organization name in which to clone the repo.",
 )
 @click.option(
     "--repo-path-dir",

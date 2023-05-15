@@ -10,17 +10,18 @@ It will take the following steps:
 
 ```
 **Description:**
-**Proof of Concept:**
 **Impact:**
+**Proof of Concept:**
 **Recommended Mitigation:**
 **[Project]:** 
+**Cyfrin:**
 ```
 
-3. Updates labels to label issues based on severity
+3. Update labels to label issues based on severity and status
 4. Create branches for each of the auditors participating
 5. Create a branch for the final report
-6. Add the [report-generator](https://github.com/ChainAccelOrg/report-generator-template) to the repo to make it easier to make the reports, and add a button in github actions to generate the report
-7.  Sets up the project board as well
+6. Add the [report-generator-template](https://github.com/ChainAccelOrg/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
+7. Attempt to set up a GitHub project board
 
 # Getting Started
 
@@ -36,7 +37,7 @@ It will take the following steps:
 
 ## Installation
 
-To instal from source: 
+To install from source: 
 
 ```bash 
 git clone https://github.com/ChainAccelOrg/audit-repo-cloner
