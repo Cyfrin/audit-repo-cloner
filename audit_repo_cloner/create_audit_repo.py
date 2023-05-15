@@ -126,7 +126,6 @@ def create_audit_repo(
         repo_path_dir,
     )
 
-    repo = remove_github_actions(repo, repo_path_dir)
     repo = add_issue_template_to_repo(repo)
     repo = replace_labels_in_repo(repo)
     repo = create_branches_for_auditors(repo, auditors_list)
@@ -141,57 +140,7 @@ def create_audit_repo(
     set_up_ci(repo, subtree_relative_path)
     set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
-
-
-def remove_github_actions(repo: Repository, repo_path_dir: str) -> Repository:
-    folder_path = f"{repo_path_dir}/{GITHUB_WORKFLOW_PATH}"
-    try:
-        contents = repo.get_contents(folder_path, ref=repo.default_branch)
-    except:
-        log.info(f"Folder '{folder_path}' not found.")
-        return repo
-
-    if not contents:
-        log.info(f"Folder '{folder_path}' is empty.")
-        return repo
-
-    for content in contents:
-        if content.type == "dir":
-            delete_folder_if_exists(repo, content.path)
-        else:
-            repo.delete_file(
-                content.path,
-                GITHUB_WORKFLOW_DELETE_MESSAGE,
-                content.sha,
-                branch=repo.default_branch,
-            )
-    print(f"Folder '{folder_path}' has been deleted.")
-    return repo
-
-
-def delete_folder_if_exists(repo, folder_path):
-    try:
-        contents = repo.get_contents(folder_path, ref=repo.default_branch)
-    except:
-        log.info(f"Folder '{folder_path}' not found.")
-        return
-
-    if not contents:
-        log.info(f"Folder '{folder_path}' is empty.")
-        return
-
-    for content in contents:
-        if content.type == "dir":
-            delete_folder_if_exists(repo, content.path, GITHUB_WORKFLOW_DELETE_MESSAGE)
-        else:
-            repo.delete_file(
-                content.path,
-                GITHUB_WORKFLOW_DELETE_MESSAGE,
-                content.sha,
-                branch=repo.default_branch,
-            )
-    log.info(f"Folder '{folder_path}' has been deleted.")
-
+    
 
 def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
     # Add report-generator-template as a subtree
