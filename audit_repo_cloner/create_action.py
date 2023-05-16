@@ -14,6 +14,11 @@ on:
 
 jobs:
   generate-report:
+    uses: ./.github/workflows/main.yml
+    with:
+      generator-path: {generator_path}
+      output-path: ./
+      time: {datetime}
 """
         # Create a new file in the .github/workflows directory with the workflow contents
         repo.create_file(

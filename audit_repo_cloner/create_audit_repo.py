@@ -4,14 +4,15 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository
 from dotenv import load_dotenv
-from .create_action import create_action
+from create_action import create_action
+from create_secret import create_secret
 import click
 import subprocess
 import logging as log
 import yaml
-from .__version__ import __version__, __title__
+from __version__ import __version__, __title__
 
-from .constants import (
+from constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
@@ -29,8 +30,6 @@ MAIN_BRANCH_NAME = "main"
 SUBTREE_URL = "https://github.com/ChainAccelOrg/report-generator-template.git"
 SUBTREE_NAME = "report-generator-template"
 SUBTREE_PATH_PREFIX = "cyfrin-report"
-GITHUB_WORKFLOW_PATH = ".github"
-GITHUB_WORKFLOW_DELETE_MESSAGE = "Remove GitHub Actions"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 
 
@@ -132,19 +131,18 @@ def create_audit_repo(
     main_branch = repo.get_branch(MAIN_BRANCH_NAME)
     repo = create_report_branch(repo, main_branch)
 
-    subtree_relative_path = f"./{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
+    subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
-        add_subtree(repo, source_repo_name, repo_path_dir)
-    set_up_ci(repo, subtree_relative_path)
+        add_subtree(repo, source_repo_name, repo_path_dir, subtree_path)
+    set_up_ci(repo, subtree_path, github_token)
     set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
     
 
-def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
+def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str, subtree_path: str):
     # Add report-generator-template as a subtree
-    subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     if not os.path.exists(repo_path):
@@ -154,12 +152,12 @@ def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
 
         # Pull the latest changes from the origin
         subprocess.run(
-            f"git -C {repo_path} pull origin {MAIN_BRANCH_NAME} --rebase",
+            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase",
             shell=True,
             check=True,
         )
         subprocess.run(
-            f"git -C {repo_path} checkout {MAIN_BRANCH_NAME}", shell=True, check=True
+            f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=True
         )
 
         # Add the subtree to the repo
@@ -170,7 +168,7 @@ def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
         )
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         subprocess.run(
-            f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml .github/workflows/main.yml",
+            f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml {repo_path}/.github/workflows/main.yml",
             shell=True,
             check=True,
         )
@@ -188,7 +186,7 @@ def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
         shutil.rmtree(repo_path)
 
         print(
-            f"The subtree {SUBTREE_NAME} has been added to {repo.name} on branch {MAIN_BRANCH_NAME}"
+            f"The subtree {SUBTREE_NAME} has been added to {repo.name} on branch {REPORT_BRANCH_NAME}"
         )
 
     except GithubException as e:
@@ -196,13 +194,14 @@ def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str):
         exit()
 
 
-def set_up_ci(repo, subtree_path: str):
+def set_up_ci(repo, subtree_path: str, github_token):
     try:
+        create_secret(repo, "GITHUB_TOKEN", github_token)
         create_action(
             repo,
             GITHUB_WORKFLOW_ACTION_NAME,
             subtree_path,
-            MAIN_BRANCH_NAME,
+            REPORT_BRANCH_NAME,
             str(date.today()),
         )
     except Exception as e:
