@@ -2,8 +2,7 @@ To get started contributing to this project, you'll first need to set up your de
 
 ```
 git clone https://github.com/ChainAccelOrg/audit-repo-cloner.git
-cd audit_
-
+cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
 ```

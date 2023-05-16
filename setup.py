@@ -72,7 +72,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "audit_repo_cloner = audit_repo_cloner:main",
+            "audit_repo_cloner = audit_repo_cloner:create_audit_repo",
         ],
     },
 )
