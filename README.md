@@ -56,7 +56,7 @@ audit_repo_cloner --version
 And get an output like:
 
 ```
-audit_repo_cloner, version 0.1.0
+audit_repo_cloner, version 0.2.0
 ```
 
 ## Getting a github token
