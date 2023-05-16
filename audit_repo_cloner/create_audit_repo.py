@@ -45,6 +45,7 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     help="Have this CLI be interactive by prompting or pass in args via the command.",
 )
 @click.option("--source-url", default=None, help="Source repository URL.")
+@click.option("--commit-hash", default=None, help="Audit commit hash.")
 @click.option(
     "--auditors", default=None, help="Names of the auditors (separated by spaces)."
 )
@@ -67,6 +68,7 @@ def create_audit_repo(
     config: str,
     prompt: bool,
     source_url: str,
+    commit_hash:str,
     auditors: str,
     github_token: str,
     organization: str,
@@ -88,20 +90,21 @@ def create_audit_repo(
         None
     """
     if config:
-        (source_url, auditors, github_token, organization) = load_config(
+        (source_url, commit_hash, auditors, github_token, organization) = load_config(
             config,
             source_url=source_url,
+            commit_hash=commit_hash,
             auditors=auditors,
             github_token=github_token,
             organization=organization,
         )
     if prompt:
-        source_url, auditors, organization = prompt_for_details(
-            source_url, auditors, organization
+        source_url, commit_hash, auditors, organization = prompt_for_details(
+            source_url, commit_hash, auditors, organization
         )
-    if not source_url or not auditors or not organization:
+    if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
-            "Source URL, organization, and auditors must be provided either through --prompt, config, or as options."
+            "Source URL, commit hash, organization, and auditors must be provided either through --prompt, config, or as options."
         )
     if not github_token:
         raise click.UsageError(
@@ -113,17 +116,23 @@ def create_audit_repo(
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
 
-    github_object = Github(github_token)
-    github_org = github_object.get_organization(organization)
-
     repo = get_or_clone_repo(
-        github_object,
-        github_org,
+        github_token,
         organization,
         source_repo_name,
         source_username,
         repo_path_dir,
     )
+
+    tag = repo.create_git_tag(
+        tag="cyfrin-audit",
+        message="Cyfrin audit tag",
+        object=commit_hash,
+        type="commit",
+    )
+
+    # Now create a reference to this tag in the repository
+    repo.create_git_ref(ref=f"refs/tags/{tag.tag}", sha=tag.sha)
 
     repo = add_issue_template_to_repo(repo)
     repo = replace_labels_in_repo(repo)
@@ -136,6 +145,7 @@ def create_audit_repo(
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
         add_subtree(repo, source_repo_name, repo_path_dir, subtree_path)
+
     set_up_ci(repo, subtree_path, github_token)
     set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
@@ -286,35 +296,40 @@ def load_config(
     return source_url, auditors, github_token, organization
 
 
-def prompt_for_details(source_url: str, auditors: str, organization: str):
+def prompt_for_details(source_url: str, commit_hash: str, auditors: str, organization: str):
     while True:
         if not source_url:
             source_url = input(
                 "Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n1) Source repo url: "
             )
+        if not commit_hash:
+            commit_hash = input(
+                "\n2) Audit commit hash (be sure to copy the full SHA): "
+            )
         if not auditors:
             auditors = input(
-                "\n2) Enter the names of the auditors (separated by spaces): "
+                "\n3) Enter the names of the auditors (separated by spaces): "
             )
         if not organization:
             organization = input(
-                "\n3) Enter the name of the organization to create the audit repository in: "
+                "\n4) Enter the name of the organization to create the audit repository in: "
             )
 
         if source_url and auditors and organization:
             break
         print("Please fill in all the details.")
-    return source_url, auditors, organization
+    return source_url, commit_hash, auditors, organization
 
 
 def get_or_clone_repo(
-    github_object,
-    github_org,
+    github_token,
     organization,
     source_repo_name,
     source_username,
     repo_path_dir,
 ) -> Repository:
+    github_object = Github(github_token)
+    github_org = github_object.get_organization(organization)
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     try:
         repo = github_object.get_repo(f"{organization}/{source_repo_name}")
@@ -323,7 +338,7 @@ def get_or_clone_repo(
             [
                 "git",
                 "clone",
-                f"https://github.com/{organization}/{source_repo_name}.git",
+                f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
                 repo_path,
             ]
         )
@@ -347,7 +362,7 @@ def get_or_clone_repo(
                 [
                     "git",
                     "clone",
-                    f"https://github.com/{source_username}/{source_repo_name}.git",
+                    f"https://{github_token}@github.com/{source_username}/{source_repo_name}.git",
                     repo_path,
                 ]
             )
@@ -362,7 +377,7 @@ def get_or_clone_repo(
                     "remote",
                     "set-url",
                     "origin",
-                    f"https://github.com/{organization}/{source_repo_name}.git",
+                    f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
                 ]
             )
 

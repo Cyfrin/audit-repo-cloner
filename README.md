@@ -18,10 +18,11 @@ It will take the following steps:
 ```
 
 3. Update labels to label issues based on severity and status
-4. Create branches for each of the auditors participating
-5. Create a branch for the final report
-6. Add the [report-generator-template](https://github.com/ChainAccelOrg/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
-7. Attempt to set up a GitHub project board
+4. Create an audit tag at the given commit hash (full SHA)
+5. Create branches for each of the auditors participating
+6. Create a branch for the final report
+7. Add the [report-generator-template](https://github.com/ChainAccelOrg/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
+8. Attempt to set up a GitHub project board
 
 # Getting Started
 
@@ -90,7 +91,7 @@ audit_repo_cloner --help
 ## As a single command
 
 ```
-audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --auditors "81k-ltd blue-frog-man giiioooooooo" --organization chainaccelorg --github-token <YOUR_GITHUB_TOKEN>
+audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "81k-ltd blue-frog-man giiioooooooo" --organization chainaccelorg --github-token <YOUR_GITHUB_TOKEN>
 ```
 
 ```
@@ -102,12 +103,17 @@ Hello! This script will clone target repository and prepare it for a Cyfrin audi
 Enter: `https://github.com/code-423n4/2023-04-eigenlayer`
 
 ```
-2) Enter the names of the auditors (separated by spaces):
+2) Audit commit hash: 
+```
+Enter: `5e4872358cd2bda1936c29f460ece2308af4def6`
+
+```
+3) Enter the names of the auditors (separated by spaces):
 ```
 Enter: `"81k-ltd blue-frog-man giiioooooooo"`
 
 ```
-3) Enter the name of the organization to create the audit repository in:
+4) Enter the name of the organization to create the audit repository in:
 ```
 
 Enter: <YOUR_ORG_NAME>
