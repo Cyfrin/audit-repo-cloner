@@ -51,7 +51,7 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 )
 @click.option(
     "--github-token",
-    default=os.getenv("GITHUB_TOKEN"),
+    default=os.getenv("ACCESS_TOKEN"),
     help="Your GitHub developer token to make API calls.",
 )
 @click.option(
@@ -197,7 +197,7 @@ def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str, sub
 
 def set_up_ci(repo, subtree_path: str, github_token):
     try:
-        create_secret(repo, "GITHUB_TOKEN", github_token)
+        create_secret(repo, "ACCESS_TOKEN", github_token)
         create_action(
             repo,
             GITHUB_WORKFLOW_ACTION_NAME,

@@ -67,7 +67,7 @@ To use this, you'll need a [github personal access token](https://docs.github.co
 You can then set it as an environment variable:
 
 ```bash
-export GITHUB_TOKEN=xxxxxx
+export ACCESS_TOKEN=xxxxxx
 ```
 
 Or input it via the CLI (see below for an example)
@@ -91,7 +91,7 @@ audit_repo_cloner --help
 ## As a single command
 
 ```
-audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "81k-ltd blue-frog-man giiioooooooo" --organization chainaccelorg --github-token <YOUR_GITHUB_TOKEN>
+audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "81k-ltd blue-frog-man giiioooooooo" --organization chainaccelorg --github-token <YOUR_ACCESS_TOKEN>
 ```
 
 ```
