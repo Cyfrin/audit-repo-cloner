@@ -116,33 +116,24 @@ def create_audit_repo(
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
 
+    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
+
     repo = get_or_clone_repo(
         github_token,
         organization,
         source_repo_name,
         source_username,
-        repo_path_dir,
+        repo_path,
     )
 
-    tag = repo.create_git_tag(
-        tag="cyfrin-audit",
-        message="Cyfrin audit tag",
-        object=commit_hash,
-        type="commit",
-    )
-
-    # Now create a reference to this tag in the repository
-    repo.create_git_ref(ref=f"refs/tags/{tag.tag}", sha=tag.sha)
-
+    repo = create_audit_tag(repo, repo_path, commit_hash)
     repo = add_issue_template_to_repo(repo)
     repo = replace_labels_in_repo(repo)
     repo = create_branches_for_auditors(repo, auditors_list)
-    main_branch = repo.get_branch(MAIN_BRANCH_NAME)
-    repo = create_report_branch(repo, main_branch)
+    repo = create_report_branch(repo, commit_hash)
 
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
-    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
         add_subtree(repo, source_repo_name, repo_path_dir, subtree_path)
 
@@ -326,11 +317,10 @@ def get_or_clone_repo(
     organization,
     source_repo_name,
     source_username,
-    repo_path_dir,
+    repo_path,
 ) -> Repository:
     github_object = Github(github_token)
     github_org = github_object.get_organization(organization)
-    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
     try:
         repo = github_object.get_repo(f"{organization}/{source_repo_name}")
         print(f"Cloning {source_repo_name}...")
@@ -390,6 +380,75 @@ def get_or_clone_repo(
     return repo
 
 
+def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
+    try:
+        tag = repo.create_git_tag(
+            tag="cyfrin-audit",
+            message="Cyfrin audit tag",
+            object=commit_hash,
+            type="commit",
+        )
+
+        # Now create a reference to this tag in the repository
+        repo.create_git_ref(ref=f"refs/tags/{tag.tag}", sha=tag.sha)
+    except GithubException as e:
+        log.error(f"Error creating audit tag: {e}")
+        log.info("Attempting to create tag manually...")
+
+        try:
+            subprocess.run(["git", "-C", repo_path, "fetch", "origin"])
+
+            # Identify the branch containing the commit using `git branch --contains`
+            completed_process = subprocess.run(
+                ["git", "-C", repo_path, "branch", "-r", "--contains", commit_hash],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            
+            branches = [b.strip().split('/', 1)[1] for b in completed_process.stdout.strip().split("\n")]
+
+            if not branches:
+                raise Exception(f"Commit {commit_hash} not found in any branch")
+            
+            if len(branches) > 1:
+                # Prompt the user to choose the branch
+                print("The commit is found on multiple branches:")
+                for i, branch in enumerate(branches):
+                    print(f"{i+1}. {branch}")
+
+                while True:
+                    try:
+                        branch_index = int(input("Enter the number of the branch to create the tag: "))
+                        if branch_index < 1 or branch_index > len(branches):
+                            raise ValueError("Invalid branch index")
+                        branch = branches[branch_index - 1]
+                        break
+                    except ValueError:
+                        print("Invalid branch index. Please enter a valid index.")
+            else:
+                branch = branches[0]
+
+            # Fetch the branch containing the commit hash
+            subprocess.run(["git", "-C", repo_path, "fetch", "origin", branch])
+
+            # Checkout the branch containing the commit hash
+            subprocess.run(["git", "-C", repo_path, "checkout", branch])
+
+            # Create the tag at the specific commit hash
+            subprocess.run(["git", "-C", repo_path, "tag", "cyfrin-audit", commit_hash])
+
+            # Push the branch to the remote repository
+            subprocess.run(["git", "-C", repo_path, "push", "origin", branch])
+
+            # Push the tag to the remote repository
+            subprocess.run(["git", "-C", repo_path, "push", "origin", "cyfrin-audit"])
+        except GithubException as e:
+            log.error(f"Error creating audit tag manually: {e}")
+            exit()
+    return repo
+
+
 def add_issue_template_to_repo(repo) -> Repository:
     # Get the existing finding.md file, if it exists
     try:
@@ -429,12 +488,11 @@ def create_new_labels(repo) -> Repository:
     return repo
 
 
-def create_branches_for_auditors(repo, auditors_list) -> Repository:
-    main_branch = repo.get_branch(MAIN_BRANCH_NAME)
+def create_branches_for_auditors(repo, auditors_list, commit_hash) -> Repository:
     for auditor in auditors_list:
         branch_name = f"audit/{auditor}"
         try:
-            repo.create_git_ref(f"refs/heads/{branch_name}", main_branch.commit.sha)
+            repo.create_git_ref(f"refs/heads/{branch_name}", commit_hash)
         except GithubException as e:
             if e.status == 422:
                 log.warn(f"Branch {branch_name} already exists. Skipping...")
@@ -451,10 +509,10 @@ def replace_labels_in_repo(repo) -> Repository:
     return repo
 
 
-def create_report_branch(repo, main_branch) -> Repository:
+def create_report_branch(repo, commit_hash) -> Repository:
     try:
         repo.create_git_ref(
-            ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=main_branch.commit.sha
+            ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=commit_hash
         )
     except GithubException as e:
         if e.status == 422:
