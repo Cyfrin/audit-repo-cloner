@@ -20,4 +20,3 @@ def create_secret(repo, secret_name, secret_value):
     except GithubException as e:
         print(f"Failed to add {secret_name} secret to {repo.name} repository.")
         print(e)
-        

@@ -68,7 +68,7 @@ def create_audit_repo(
     config: str,
     prompt: bool,
     source_url: str,
-    commit_hash:str,
+    commit_hash: str,
     auditors: str,
     github_token: str,
     organization: str,
@@ -140,9 +140,11 @@ def create_audit_repo(
     set_up_ci(repo, subtree_path, github_token)
     set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
-    
 
-def add_subtree(repo: Repository, source_repo_name: str, repo_path_dir: str, subtree_path: str):
+
+def add_subtree(
+    repo: Repository, source_repo_name: str, repo_path_dir: str, subtree_path: str
+):
     # Add report-generator-template as a subtree
 
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
@@ -287,7 +289,9 @@ def load_config(
     return source_url, auditors, github_token, organization
 
 
-def prompt_for_details(source_url: str, commit_hash: str, auditors: str, organization: str):
+def prompt_for_details(
+    source_url: str, commit_hash: str, auditors: str, organization: str
+):
     while True:
         if not source_url:
             source_url = input(
@@ -405,12 +409,15 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
                 capture_output=True,
                 check=True,
             )
-            
-            branches = [b.strip().split('/', 1)[1] for b in completed_process.stdout.strip().split("\n")]
+
+            branches = [
+                b.strip().split("/", 1)[1]
+                for b in completed_process.stdout.strip().split("\n")
+            ]
 
             if not branches:
                 raise Exception(f"Commit {commit_hash} not found in any branch")
-            
+
             if len(branches) > 1:
                 # Prompt the user to choose the branch
                 print("The commit is found on multiple branches:")
@@ -419,7 +426,9 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
 
                 while True:
                     try:
-                        branch_index = int(input("Enter the number of the branch to create the tag: "))
+                        branch_index = int(
+                            input("Enter the number of the branch to create the tag: ")
+                        )
                         if branch_index < 1 or branch_index > len(branches):
                             raise ValueError("Invalid branch index")
                         branch = branches[branch_index - 1]
@@ -511,9 +520,7 @@ def replace_labels_in_repo(repo) -> Repository:
 
 def create_report_branch(repo, commit_hash) -> Repository:
     try:
-        repo.create_git_ref(
-            ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=commit_hash
-        )
+        repo.create_git_ref(ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=commit_hash)
     except GithubException as e:
         if e.status == 422:
             log.warn(f"Branch {REPORT_BRANCH_NAME} already exists. Skipping...")
