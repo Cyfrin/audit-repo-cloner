@@ -44,7 +44,16 @@ TODO
 
 TODO
 
-# Uploading to PyPI 
+# Upload to PyPI (For most contributors)
+
+Once the package is ready, do the following:
+
+1. Update the `__version__` in `__version__.py`
+2. Cut a release in the GitHub UI with the same version as what's in `__version__.py`
+
+The github actions should then automatically push it to PyPI. 
+
+# Uploading to PyPI (Manual)
 
 _For maintainers only. You can view the [docs](https://packaging.python.org/en/latest/tutorials/packaging-projects/#generating-distribution-archives) to learn more._ 
 
