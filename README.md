@@ -64,13 +64,13 @@ audit_repo_cloner, version 0.2.0
 
 To use this, you'll need a [github personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token). Please view the docs to set one up. 
 
-You can then set it as an environment variable:
+You can then set it as an environment variable or input it via the CLI:
 
 ```bash
 export ACCESS_TOKEN=xxxxxx
 ```
 
-Or input it via the CLI (see below for an example)
+Note: this access token is encypted and added to the generated repo as a GitHub secret. It is only used to create the repo initially and allow the GitHub Action to run the report generator (fetching issues) in CI. Be sure to update the GitHub secret if you change your access token or it expires.
 
 # Example input and output
 
