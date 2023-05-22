@@ -21,8 +21,13 @@ It will take the following steps:
 4. Create an audit tag at the given commit hash (full SHA)
 5. Create branches for each of the auditors participating
 6. Create a branch for the final report
-7. Add the [report-generator-template](https://github.com/ChainAccelOrg/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
+7. Add the [report-generator-template](https://github.com/Cyfrin/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
 8. Attempt to set up a GitHub project board
+
+Note: Changes to `report-generator-template` can be pulled into the generated repo by running:
+```bash
+git subtree pull --prefix cyfrin-report/report-generator-template https://github.com/Cyfrin/report-generator-template main --squash
+```
 
 # Getting Started
 
@@ -41,14 +46,24 @@ It will take the following steps:
 To install from source: 
 
 ```bash 
-git clone https://github.com/ChainAccelOrg/audit-repo-cloner
+git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+```
+
+To install from pipx:
+```bash
+pipx install audit_repo_cloner
+```
+
+And if installing from source with pipx package already installed, install in editable mode:
+```bash
 pip install -e .
 ```
 
-You'll know you've installed it right if you can run:
+You'll know you've installed it correctly if you can run:
 
 ```
 audit_repo_cloner --version
@@ -60,7 +75,7 @@ And get an output like:
 audit_repo_cloner, version 0.2.0
 ```
 
-## Getting a github token
+## Getting a GitHub token
 
 To use this, you'll need a [github personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token). Please view the docs to set one up. 
 
@@ -71,11 +86,6 @@ export ACCESS_TOKEN=xxxxxx
 ```
 
 Note: this access token is encypted and added to the generated repo as a GitHub secret. It is only used to create the repo initially and allow the GitHub Action to run the report generator (fetching issues) in CI. Be sure to update the GitHub secret if you change your access token or it expires.
-
-# Example input and output
-
-Input: https://github.com/code-423n4/2023-04-eigenlayer
-Output: https://github.com/81k-ltd/2023-04-eigenlayer
 
 # Usage
 
@@ -90,8 +100,15 @@ audit_repo_cloner --help
 
 ## As a single command
 
+From source:
+```bash
+python ./create_audit_repo.py`
 ```
-audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "81k-ltd blue-frog-man giiioooooooo" --organization chainaccelorg --github-token <YOUR_ACCESS_TOKEN>
+
+Otherwise (pipx):
+
+```
+audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "81k-ltd blue-frog-man giiioooooooo" --organization cyfrin --github-token <YOUR_ACCESS_TOKEN>
 ```
 
 ```
