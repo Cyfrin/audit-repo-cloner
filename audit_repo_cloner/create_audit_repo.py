@@ -129,7 +129,7 @@ def create_audit_repo(
     repo = create_audit_tag(repo, repo_path, commit_hash)
     repo = add_issue_template_to_repo(repo)
     repo = replace_labels_in_repo(repo)
-    repo = create_branches_for_auditors(repo, auditors_list)
+    repo = create_branches_for_auditors(repo, auditors_list, commit_hash)
     repo = create_report_branch(repo, commit_hash)
 
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
