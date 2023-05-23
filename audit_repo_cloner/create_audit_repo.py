@@ -5,7 +5,6 @@ from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository
 from dotenv import load_dotenv
 from create_action import create_action
-from create_secret import create_secret
 import click
 import subprocess
 import logging as log
@@ -199,7 +198,6 @@ def add_subtree(
 
 def set_up_ci(repo, subtree_path: str, github_token):
     try:
-        create_secret(repo, "ACCESS_TOKEN", github_token)
         create_action(
             repo,
             GITHUB_WORKFLOW_ACTION_NAME,
