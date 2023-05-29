@@ -18,7 +18,8 @@ jobs:
     with:
       generator-path: {generator_path}
       output-path: ./
-      time: {datetime}
+      # currently, this will be the date at which the tool is initially run (so leave blank for now and use action default)
+      # time: {datetime}
 """
         # Create a new file in the .github/workflows directory with the workflow contents
         repo.create_file(
