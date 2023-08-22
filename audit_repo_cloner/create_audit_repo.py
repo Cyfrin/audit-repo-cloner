@@ -109,7 +109,8 @@ def create_audit_repo(
         raise click.UsageError(
             "GitHub token must be provided either through config or environment variable."
         )
-    source_url = source_url.rstrip(".git")
+    
+    source_url = source_url.replace(".git", "")
     url_parts = source_url.split("/")
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
