@@ -110,7 +110,7 @@ def create_audit_repo(
             "GitHub token must be provided either through config or environment variable."
         )
     
-    source_url = source_url.replace(".git", "")
+    source_url = source_url.replace(".git", "") # remove .git from the url
     url_parts = source_url.split("/")
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
