@@ -59,6 +59,11 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     help="Your GitHub organization name in which to clone the repo.",
 )
 @click.option(
+    "--target-repo-name",
+    default="",
+    help="The name of the target repository to be created.",
+)
+@click.option(
     "--repo-path-dir",
     default="/tmp",
     help="The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.",
@@ -71,6 +76,7 @@ def create_audit_repo(
     auditors: str,
     github_token: str,
     organization: str,
+    target_repo_name: str,
     repo_path_dir: str,
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
@@ -83,6 +89,7 @@ def create_audit_repo(
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
         github_token (str): The GitHub developer token to make API calls.
         organization (str): The GitHub organization to create the audit repository in.
+        target_repo_name (str): The name of the target repository to be created.
         repo_path_dir (str): The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.
 
     Returns:
@@ -98,8 +105,8 @@ def create_audit_repo(
             organization=organization,
         )
     if prompt:
-        source_url, commit_hash, auditors, organization = prompt_for_details(
-            source_url, commit_hash, auditors, organization
+        source_url, commit_hash, auditors, organization, target_repo_name = prompt_for_details(
+            source_url, commit_hash, auditors, organization, target_repo_name
         )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
@@ -114,6 +121,8 @@ def create_audit_repo(
     url_parts = source_url.split("/")
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
+    if not target_repo_name:
+        target_repo_name = source_repo_name
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
 
     repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
@@ -122,6 +131,7 @@ def create_audit_repo(
         github_token,
         organization,
         source_repo_name,
+        target_repo_name,
         source_username,
         repo_path,
     )
@@ -289,49 +299,62 @@ def load_config(
 
 
 def prompt_for_details(
-    source_url: str, commit_hash: str, auditors: str, organization: str
+    source_url: str, commit_hash: str, auditors: str, organization: str, target_repo_name: str
 ):
+    step:int = 1
     while True:
         if not source_url:
             source_url = input(
-                "Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n1) Source repo url: "
+                f"Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{step}) Source repo url: "
             )
+            step += 1
         if not commit_hash:
             commit_hash = input(
-                "\n2) Audit commit hash (be sure to copy the full SHA): "
+                f"\n{step}) Audit commit hash (be sure to copy the full SHA): "
             )
+            step += 1
         if not auditors:
             auditors = input(
-                "\n3) Enter the names of the auditors (separated by spaces): "
+                f"\n{step}) Enter the names of the auditors (separated by spaces): "
             )
+            step += 1
         if not organization:
             organization = input(
-                "\n4) Enter the name of the organization to create the audit repository in: "
+                f"\n{step}) Enter the name of the organization to create the audit repository in: "
             )
+            step += 1
+        if not target_repo_name:
+            target_repo_name = input(
+                f"\n{step}) Enter the name of the target repo name (leave blank to use the same name to the original repo): "
+            )
+            step += 1
 
         if source_url and auditors and organization:
             break
         print("Please fill in all the details.")
-    return source_url, commit_hash, auditors, organization
+    return source_url, commit_hash, auditors, organization, target_repo_name
 
 
 def get_or_clone_repo(
     github_token,
     organization,
     source_repo_name,
+    target_repo_name,
     source_username,
     repo_path,
 ) -> Repository:
     github_object = Github(github_token)
     github_org = github_object.get_organization(organization)
+
+    # check if the repository already exists
     try:
-        repo = github_object.get_repo(f"{organization}/{source_repo_name}")
-        print(f"Cloning {source_repo_name}...")
+        repo = github_object.get_repo(f"{organization}/{target_repo_name}")
+        print(f"Cloning {target_repo_name}...")
         subprocess.run(
             [
                 "git",
                 "clone",
-                f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
+                f"https://{github_token}@github.com/{organization}/{target_repo_name}.git",
                 repo_path,
             ]
         )
@@ -344,13 +367,14 @@ def get_or_clone_repo(
             exit()
 
     if repo is None:
+        # create new repo
         try:
-            repo = github_org.create_repo(source_repo_name, private=True)
+            repo = github_org.create_repo(target_repo_name, private=True)
         except GithubException as e:
             log.error(e)
 
         try:
-            print(f"Cloning {source_repo_name}...")
+            print(f"Cloning {target_repo_name}...")
             subprocess.run(
                 [
                     "git",
@@ -370,7 +394,7 @@ def get_or_clone_repo(
                     "remote",
                     "set-url",
                     "origin",
-                    f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
+                    f"https://{github_token}@github.com/{organization}/{target_repo_name}.git",
                 ]
             )
 
