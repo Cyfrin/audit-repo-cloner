@@ -140,15 +140,14 @@ def create_audit_repo(
         repo = replace_labels_in_repo(repo)
         repo = create_branches_for_auditors(repo, auditors_list, commit_hash)
         repo = create_report_branch(repo, commit_hash)
-        repo = add_subtree(repo, temp_dir, subtree_path)
+        repo = add_subtree(repo, source_repo_name, target_repo_name, source_username, organization, temp_dir, subtree_path, commit_hash)
         repo = set_up_ci(repo, subtree_path)
         repo = set_up_project_board(repo, source_username, target_repo_name)
-
     print("Done!")
 
 
 def add_subtree(
-    repo: Repository, repo_path: str, subtree_path: str
+    repo: Repository, source_repo_name: str, target_repo_name: str, source_username: str, organization: str, repo_path: str, subtree_path: str, commit_hash: str
 ):
     # Add report-generator-template as a subtree
 
@@ -177,6 +176,27 @@ def add_subtree(
             shell=True,
             check=True,
         )
+
+        with open(f"{repo_path}/{subtree_path}/source/summary_information.conf", "r") as f:
+            summary_information = f.read()
+            summary_information = summary_information.replace(
+                r"^project_github = .*$",
+                f"project_github = https://github.com/{source_username}/{source_repo_name}.git"
+            )
+
+            summary_information = summary_information.replace(
+                r"^private_github = .*$",
+                f"private_github = https://github.com/{organization}/{target_repo_name}.git"
+            )
+
+            summary_information = summary_information.replace(
+                r"^commit_hash = .*$",
+                f"commit_hash = {commit_hash}"
+            )
+
+            with open(f"{repo_path}/{subtree_path}/source/summary_information.conf", "w") as f:
+                f.write(summary_information)
+        
         subprocess.run(f"git -C {repo_path} add .", shell=True, check=True)
         subprocess.run(
             f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'",
