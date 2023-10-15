@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository
 from dotenv import load_dotenv
-from create_action import create_action
+from .create_action import create_action
 import click
 import subprocess
 import logging as log
