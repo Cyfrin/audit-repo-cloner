@@ -26,7 +26,7 @@ load_dotenv()
 # Globals are shit. We should refactor again in the future...
 REPORT_BRANCH_NAME = "report"
 MAIN_BRANCH_NAME = "main"
-SUBTREE_URL = "https://github.com/ChainAccelOrg/report-generator-template.git"
+SUBTREE_URL = "https://github.com/Cyfrin/report-generator-template.git"
 SUBTREE_NAME = "report-generator-template"
 SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
@@ -44,6 +44,7 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     help="Have this CLI be interactive by prompting or pass in args via the command.",
 )
 @click.option("--source-url", default=None, help="Source repository URL.")
+@click.option(|"--target-name", default=None, help="Target repository name (leave blank to use source repo name).")
 @click.option("--commit-hash", default=None, help="Audit commit hash.")
 @click.option(
     "--auditors", default=None, help="Names of the auditors (separated by spaces)."
@@ -67,6 +68,7 @@ def create_audit_repo(
     config: str,
     prompt: bool,
     source_url: str,
+    taget_name: str,
     commit_hash: str,
     auditors: str,
     github_token: str,
@@ -89,17 +91,18 @@ def create_audit_repo(
         None
     """
     if config:
-        (source_url, commit_hash, auditors, github_token, organization) = load_config(
+        (source_url, target_repo_name, commit_hash, auditors, github_token, organization) = load_config(
             config,
             source_url=source_url,
+            taget_name=taget_name,
             commit_hash=commit_hash,
             auditors=auditors,
             github_token=github_token,
             organization=organization,
         )
     if prompt:
-        source_url, commit_hash, auditors, organization = prompt_for_details(
-            source_url, commit_hash, auditors, organization
+        source_url, target_repo_name, commit_hash, auditors, organization = prompt_for_details(
+            source_url, target_repo_name, commit_hash, auditors, organization
         )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
@@ -116,11 +119,16 @@ def create_audit_repo(
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
 
-    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
+    # if target_repo_name is not provided, attempt to use the source repo name
+    if not target_repo_name:
+        target_repo_name = source_repo_name
 
-    repo = get_or_clone_repo(
+    repo_path = os.path.abspath(f"{repo_path_dir}/{target_repo_name}")
+
+    repo = try_clone_repo(
         github_token,
         organization,
+        target_repo_name,
         source_repo_name,
         source_username,
         repo_path,
@@ -249,6 +257,7 @@ def set_up_project_board(repo, source_username: str, source_repo_name: str):
 def load_config(
     config: str,
     source_url: Optional[str] = None,
+    target_repo_name: Optional[str] = None,
     auditors: Optional[str] = None,
     github_token: Optional[str] = None,
     organization: Optional[str] = None,
@@ -258,6 +267,7 @@ def load_config(
     Args:
         config (str): The path to the configuration file.
         source_url (Optional[str], optional): The URL you want to download. Defaults to None.
+        target_repo_name (Optional[str], optional): The name of the target repository. Defaults to None.
         auditors (Optional[str], optional): The list of auditors separated by spaces. Defaults to None.
         github_token (Optional[str], optional): The GitHub token to use. Defaults to None.
         organization (Optional[str], optional): The organization to make the github repo. Defaults to None.
@@ -272,6 +282,13 @@ def load_config(
             if source_url is None
             else source_url
         )
+
+        target_repo_name = (
+            config_data.get("target_repo_name", target_repo_name)
+            if target_repo_name is None
+            else target_repo_name
+        )
+        
         auditors = (
             config_data.get("auditors", auditors) if auditors is None else auditors
         )
@@ -285,39 +302,51 @@ def load_config(
             if organization is None
             else organization
         )
-    return source_url, auditors, github_token, organization
+    return source_url, target_repo_name, auditors, github_token, organization
 
 
 def prompt_for_details(
     source_url: str, commit_hash: str, auditors: str, organization: str
 ):
     while True:
+        prompt_counter = 1
+
         if not source_url:
             source_url = input(
-                "Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n1) Source repo url: "
+                f"Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: "
             )
+            prompt_counter += 1
+        if not target_repo_name:
+            target_repo_name = input(
+                f"\n{prompt_counter}) Target repo name (leave blank to use source repo name): "
+            )
+            prompt_counter += 1
         if not commit_hash:
             commit_hash = input(
-                "\n2) Audit commit hash (be sure to copy the full SHA): "
+                f"\n{prompt_counter}) Audit commit hash (be sure to copy the full SHA): "
             )
+            prompt_counter += 1
         if not auditors:
             auditors = input(
-                "\n3) Enter the names of the auditors (separated by spaces): "
+                f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): "
             )
+            prompt_counter += 1
         if not organization:
             organization = input(
-                "\n4) Enter the name of the organization to create the audit repository in: "
+                f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: "
             )
+            prompt_counter += 1
 
         if source_url and auditors and organization:
             break
         print("Please fill in all the details.")
-    return source_url, commit_hash, auditors, organization
+    return source_url, target_repo_name, commit_hash, auditors, organization
 
 
-def get_or_clone_repo(
+def try_clone_repo(
     github_token,
     organization,
+    target_repo_name,
     source_repo_name,
     source_username,
     repo_path,
@@ -325,61 +354,63 @@ def get_or_clone_repo(
     github_object = Github(github_token)
     github_org = github_object.get_organization(organization)
     try:
-        repo = github_object.get_repo(f"{organization}/{source_repo_name}")
+        print(f"Checking whether {target_repo_name} already exists...")
+        git_command = [
+            "git",
+            "ls-remote"
+            "-h",
+            f"https://{github_token}@github.com/{organization}/{target_repo_name}",
+            "&> /dev/null"
+        ]
+        
+        subprocess.check_output(git_command, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 128:
+            log.error(f"{organization}/{target_repo_name} already exists.")
+            exit()
+        else:
+            # Handle other errors or exceptions as needed
+            log.error(f"Error checking if repository exists: {e}")
+            exit()
+
+    try:
+        repo = github_org.create_repo(target_repo_name, private=True)
+    except GithubException as e:
+        log.error(f"Error creating remote repository: {e}")
+
+    try:
         print(f"Cloning {source_repo_name}...")
         subprocess.run(
             [
                 "git",
                 "clone",
-                f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
+                f"https://{github_token}@github.com/{source_username}/{source_repo_name}.git",
                 repo_path,
             ]
         )
-        return repo
+
+        subprocess.run(["git", "-C", repo_path, "commit", "-m", "initial commit"])
+
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_path,
+                "remote",
+                "set-url",
+                "origin",
+                f"https://{github_token}@github.com/{organization}/{target_repo_name}.git",
+            ]
+        )
+
+        subprocess.run(["git", "-C", repo_path, "push", "-u", "origin", "main"])
+
     except GithubException as e:
-        if e.status == 404:
-            repo = None
-        else:
-            log.error(f"Error checking if repository exists: {e}")
-            exit()
+        log.error(f"Error cloning repository: {e}")
+        repo.delete()
+        subprocess.run(["rm", "-rf", repo_path])
+        exit()
 
-    if repo is None:
-        try:
-            repo = github_org.create_repo(source_repo_name, private=True)
-        except GithubException as e:
-            log.error(e)
-
-        try:
-            print(f"Cloning {source_repo_name}...")
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    f"https://{github_token}@github.com/{source_username}/{source_repo_name}.git",
-                    repo_path,
-                ]
-            )
-
-            subprocess.run(["git", "-C", repo_path, "commit", "-m", "initial commit"])
-
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    repo_path,
-                    "remote",
-                    "set-url",
-                    "origin",
-                    f"https://{github_token}@github.com/{organization}/{source_repo_name}.git",
-                ]
-            )
-
-            subprocess.run(["git", "-C", repo_path, "push", "-u", "origin", "main"])
-
-        except GithubException as e:
-            log.error(f"Error cloning repository: {e}")
-            repo.delete()
-            exit()
     return repo
 
 
