@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from create_action import create_action
 import click
 import subprocess
+import tempfile
 import logging as log
 import yaml
 from __version__ import __version__, __title__
@@ -73,7 +74,6 @@ def create_audit_repo(
     auditors: str,
     github_token: str,
     organization: str,
-    repo_path_dir: str,
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
     If the prompt flag is set to true (default), the user will be prompted for the source repository URL and auditor names.
@@ -82,10 +82,10 @@ def create_audit_repo(
     Args:
         prompt (bool): Determines if the script should use default prompts for input or the provided click arguments.
         source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
+        target_repo_name (str): The name of the target repository to be created.
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
         github_token (str): The GitHub developer token to make API calls.
         organization (str): The GitHub organization to create the audit repository in.
-        repo_path_dir (str): The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.
 
     Returns:
         None
@@ -118,46 +118,40 @@ def create_audit_repo(
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
+    subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
     # if target_repo_name is not provided, attempt to use the source repo name
     if not target_repo_name:
         target_repo_name = source_repo_name
 
-    repo_path = os.path.abspath(f"{repo_path_dir}/{target_repo_name}")
+    with tempfile.TemporaryDirectory() as temp_dir:
 
-    repo = try_clone_repo(
-        github_token,
-        organization,
-        target_repo_name,
-        source_repo_name,
-        source_username,
-        repo_path,
-    )
+        repo = try_clone_repo(
+            github_token,
+            organization,
+            target_repo_name,
+            source_repo_name,
+            source_username,
+            temp_dir,
+        )
 
-    repo = create_audit_tag(repo, repo_path, commit_hash)
-    repo = add_issue_template_to_repo(repo)
-    repo = replace_labels_in_repo(repo)
-    repo = create_branches_for_auditors(repo, auditors_list, commit_hash)
-    repo = create_report_branch(repo, commit_hash)
+        repo = create_audit_tag(repo, temp_dir, commit_hash)
+        repo = add_issue_template_to_repo(repo)
+        repo = replace_labels_in_repo(repo)
+        repo = create_branches_for_auditors(repo, auditors_list, commit_hash)
+        repo = create_report_branch(repo, commit_hash)
+        repo = add_subtree(repo, temp_dir, subtree_path)
+        repo = set_up_ci(repo, subtree_path)
+        repo = set_up_project_board(repo, source_username, target_repo_name)
 
-    subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
-
-    if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
-        add_subtree(repo, source_repo_name, repo_path_dir, subtree_path)
-
-    set_up_ci(repo, subtree_path)
-    set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
 
 
 def add_subtree(
-    repo: Repository, source_repo_name: str, repo_path_dir: str, subtree_path: str
+    repo: Repository, repo_path: str, subtree_path: str
 ):
     # Add report-generator-template as a subtree
 
-    repo_path = os.path.abspath(f"{repo_path_dir}/{source_repo_name}")
-    if not os.path.exists(repo_path):
-        os.makedirs(repo_path)
     try:
         print(f"Adding subtree {SUBTREE_NAME}...")
 
@@ -202,7 +196,10 @@ def add_subtree(
 
     except GithubException as e:
         log.error(f"Error adding subtree: {e}")
+        repo.delete()
         exit()
+    
+    return repo
 
 
 def set_up_ci(repo, subtree_path: str):
@@ -218,13 +215,15 @@ def set_up_ci(repo, subtree_path: str):
         log.warn(f"Error occurred while setting up CI: {str(e)}")
         log.warn("Please set up CI manually using the report-generation.yml file.")
 
+    return repo
 
-def set_up_project_board(repo, source_username: str, source_repo_name: str):
+
+def set_up_project_board(repo, source_username: str, target_repo_name: str):
     try:
         repo.edit(has_projects=True)
         project = repo.create_project(
-            f"{source_username}/{source_repo_name}",
-            body=f"A collaborative board for the {source_username}/{source_repo_name} audit",
+            f"{source_username}/{target_repo_name}",
+            body=f"A collaborative board for the {source_username}/{target_repo_name} audit",
         )
         columns = [project.create_column(name) for name in TRELLO_COLUMNS]
         project.create_custom_field(
@@ -252,6 +251,8 @@ def set_up_project_board(repo, source_username: str, source_repo_name: str):
     except Exception as e:
         print(f"Error occurred while setting up project board: {str(e)}")
         print("Please set up project board manually.")
+
+    return repo
 
 
 def load_config(
@@ -484,6 +485,7 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
             subprocess.run(["git", "-C", repo_path, "push", "origin", "cyfrin-audit"])
         except GithubException as e:
             log.error(f"Error creating audit tag manually: {e}")
+            repo.delete()
             exit()
     return repo
 
@@ -538,6 +540,7 @@ def create_branches_for_auditors(repo, auditors_list, commit_hash) -> Repository
                 continue
             else:
                 log.error(f"Error creating branch: {e}")
+                repo.delete()
                 exit()
     return repo
 
@@ -556,6 +559,7 @@ def create_report_branch(repo, commit_hash) -> Repository:
             log.warn(f"Branch {REPORT_BRANCH_NAME} already exists. Skipping...")
         else:
             log.error(f"Error creating branch: {e}")
+            repo.delete()
             exit()
     return repo
 
