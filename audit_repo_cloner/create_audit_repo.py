@@ -318,7 +318,7 @@ def prompt_for_details(
             prompt_counter += 1
         if not target_repo_name:
             target_repo_name = input(
-                f"\n{prompt_counter}) Target repo name: "
+                f"\n{prompt_counter}) Target repo name (leave blank to use source repo name): "
             )
             prompt_counter += 1
         if not commit_hash:
