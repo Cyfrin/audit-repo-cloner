@@ -145,7 +145,7 @@ def create_audit_repo(
     if not os.path.exists(f"{repo_path}/{SUBTREE_PATH_PREFIX}"):
         add_subtree(repo, source_repo_name, repo_path_dir, subtree_path)
 
-    set_up_ci(repo, subtree_path, github_token)
+    set_up_ci(repo, subtree_path)
     set_up_project_board(repo, source_username, source_repo_name)
     print("Done!")
 
@@ -205,7 +205,7 @@ def add_subtree(
         exit()
 
 
-def set_up_ci(repo, subtree_path: str, github_token):
+def set_up_ci(repo, subtree_path: str):
     try:
         create_action(
             repo,
@@ -313,7 +313,7 @@ def prompt_for_details(
 
         if not source_url:
             source_url = input(
-                f"Hello! This script will clone target repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: "
+                f"Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: "
             )
             prompt_counter += 1
         if not target_repo_name:
@@ -337,7 +337,7 @@ def prompt_for_details(
             )
             prompt_counter += 1
 
-        if source_url and auditors and organization:
+        if source_url and commit_hash and auditors and organization:
             break
         print("Please fill in all the details.")
     return source_url, target_repo_name, commit_hash, auditors, organization
