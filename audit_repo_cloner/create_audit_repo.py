@@ -527,12 +527,12 @@ def add_issue_template_to_repo(repo) -> Repository:
 
 def delete_default_labels(repo) -> Repository:
     log.info("Deleting default labels...")
-    for label in DEFAULT_LABELS:
+    for label_name in DEFAULT_LABELS:
         try:
-            label = repo.get_label(i)
-            label.delete()
+            label = repo.get_label(label_name)
             log.info(f"Deleting {label}...")
-        except:
+            label.delete()
+        except Exception as e:
             log.warn(f"Label {label} does not exist. Skipping...")
     log.info("Finished deleting default labels")
     return repo
