@@ -1,8 +1,7 @@
 import os
-import shutil
 from datetime import date
 from typing import List, Optional, Tuple
-from github import Github, GithubException, Repository
+from github import Github, GithubException, Repository, Organization
 from dotenv import load_dotenv
 from create_action import create_action
 import click
@@ -10,6 +9,7 @@ import subprocess
 import tempfile
 import logging as log
 import yaml
+import re
 from __version__ import __version__, __title__
 
 from constants import (
@@ -46,7 +46,7 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 )
 @click.option("--source-url", default=None, help="Source repository URL.")
 @click.option(
-    "--target-name",
+    "--target-repo-name",
     default=None,
     help="Target repository name (leave blank to use source repo name).",
 )
@@ -64,16 +64,11 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     default=os.getenv("GITHUB_ORGANIZATION"),
     help="Your GitHub organization name in which to clone the repo.",
 )
-@click.option(
-    "--repo-path-dir",
-    default="/tmp",
-    help="The path to the directory where the cloned repo will be stored. If left to the default, the repo will be attempted to be deleted after the script is run.",
-)
 def create_audit_repo(
     config: str,
     prompt: bool,
     source_url: str,
-    taget_name: str,
+    target_repo_name: str,
     commit_hash: str,
     auditors: str,
     github_token: str,
@@ -105,7 +100,7 @@ def create_audit_repo(
         ) = load_config(
             config,
             source_url=source_url,
-            taget_name=taget_name,
+            target_repo_name=target_repo_name,
             commit_hash=commit_hash,
             auditors=auditors,
             github_token=github_token,
@@ -149,6 +144,7 @@ def create_audit_repo(
             source_repo_name,
             source_username,
             temp_dir,
+            commit_hash,
         )
 
         repo = create_audit_tag(repo, temp_dir, commit_hash)
@@ -168,6 +164,7 @@ def create_audit_repo(
         )
         repo = set_up_ci(repo, subtree_path)
         repo = set_up_project_board(repo, source_username, target_repo_name)
+
     print("Done!")
 
 
@@ -188,43 +185,45 @@ def add_subtree(
 
         # Pull the latest changes from the origin
         subprocess.run(
-            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase",
-            shell=True,
-            check=True,
+            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase", shell=True
         )
-        subprocess.run(
-            f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=True
-        )
+        subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True)
 
         # Add the subtree to the repo
         subprocess.run(
-            f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} main --squash",
+            f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} {MAIN_BRANCH_NAME} --squash",
             shell=True,
-            check=True,
         )
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         subprocess.run(
             f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml {repo_path}/.github/workflows/main.yml",
             shell=True,
-            check=True,
         )
 
         with open(
             f"{repo_path}/{subtree_path}/source/summary_information.conf", "r"
         ) as f:
             summary_information = f.read()
-            summary_information = summary_information.replace(
+
+            summary_information = re.sub(
                 r"^project_github = .*$",
                 f"project_github = https://github.com/{source_username}/{source_repo_name}.git",
+                summary_information,
+                flags=re.MULTILINE,
             )
 
-            summary_information = summary_information.replace(
+            summary_information = re.sub(
                 r"^private_github = .*$",
                 f"private_github = https://github.com/{organization}/{target_repo_name}.git",
+                summary_information,
+                flags=re.MULTILINE,
             )
 
-            summary_information = summary_information.replace(
-                r"^commit_hash = .*$", f"commit_hash = {commit_hash}"
+            summary_information = re.sub(
+                r"^commit_hash = .*$",
+                f"commit_hash = {commit_hash}",
+                summary_information,
+                flags=re.MULTILINE,
             )
 
             with open(
@@ -232,18 +231,15 @@ def add_subtree(
             ) as f:
                 f.write(summary_information)
 
-        subprocess.run(f"git -C {repo_path} add .", shell=True, check=True)
+        subprocess.run(f"git -C {repo_path} add .", shell=True)
         subprocess.run(
-            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'",
-            shell=True,
-            check=True,
+            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'", shell=True
         )
 
         # Push the changes back to the origin
-        subprocess.run(f"git -C {repo_path} push", shell=True, check=True)
-
-        # Remove the local directory
-        shutil.rmtree(repo_path)
+        subprocess.run(
+            f"git -C {repo_path} push origin {REPORT_BRANCH_NAME}", shell=True
+        )
 
         print(
             f"The subtree {SUBTREE_NAME} has been added to {repo.name} on branch {REPORT_BRANCH_NAME}"
@@ -362,7 +358,11 @@ def load_config(
 
 
 def prompt_for_details(
-    source_url: str, commit_hash: str, auditors: str, organization: str
+    source_url: str,
+    target_repo_name: str,
+    commit_hash: str,
+    auditors: str,
+    organization: str,
 ):
     while True:
         prompt_counter = 1
@@ -400,34 +400,80 @@ def prompt_for_details(
 
 
 def try_clone_repo(
-    github_token,
-    organization,
-    target_repo_name,
-    source_repo_name,
-    source_username,
-    repo_path,
+    github_token: str,
+    organization: str,
+    target_repo_name: str,
+    source_repo_name: str,
+    source_username: str,
+    repo_path: str,
+    commit_hash: str,
 ) -> Repository:
     github_object = Github(github_token)
     github_org = github_object.get_organization(organization)
+    repo = None
     try:
         print(f"Checking whether {target_repo_name} already exists...")
         git_command = [
             "git",
-            "ls-remote" "-h",
+            "ls-remote",
+            "-h",
             f"https://{github_token}@github.com/{organization}/{target_repo_name}",
-            "&> /dev/null",
         ]
 
-        subprocess.check_output(git_command, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 128:
+        result = subprocess.run(
+            git_command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        if result.returncode == 0:
             log.error(f"{organization}/{target_repo_name} already exists.")
             exit()
+        elif result.returncode == 128:
+            repo = create_and_clone_repo(
+                github_token,
+                github_org,
+                organization,
+                target_repo_name,
+                source_repo_name,
+                source_username,
+                repo_path,
+                commit_hash,
+            )
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 128:
+            repo = create_and_clone_repo(
+                github_token,
+                github_org,
+                organization,
+                target_repo_name,
+                source_repo_name,
+                source_username,
+                repo_path,
+                commit_hash,
+            )
         else:
             # Handle other errors or exceptions as needed
             log.error(f"Error checking if repository exists: {e}")
             exit()
 
+    if repo is None:
+        log.error("Error creating repo.")
+        exit()
+
+    return repo
+
+
+def create_and_clone_repo(
+    github_token: str,
+    github_org: Organization,
+    organization: str,
+    target_repo_name: str,
+    source_repo_name: str,
+    source_username: str,
+    repo_path: str,
+    commit_hash: str,
+) -> Repository:
     try:
         repo = github_org.create_repo(target_repo_name, private=True)
     except GithubException as e:
@@ -444,8 +490,68 @@ def try_clone_repo(
             ]
         )
 
-        subprocess.run(["git", "-C", repo_path, "commit", "-m", "initial commit"])
+    except GithubException as e:
+        log.error(f"Error cloning repository: {e}")
+        repo.delete()
+        exit()
 
+    try:
+        subprocess.run(["git", "-C", repo_path, "fetch", "origin"])
+
+        # Identify the branch containing the commit using `git branch --contains`
+        completed_process = subprocess.run(
+            ["git", "-C", repo_path, "branch", "-r", "--contains", commit_hash],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        filtered_branches = [
+            b
+            for b in completed_process.stdout.strip().split("\n")
+            if not "origin/HEAD ->" in b
+        ]
+        branches = [b.split("/", 1)[1] for b in filtered_branches]
+
+        if not branches:
+            raise Exception(f"Commit {commit_hash} not found in any branch")
+
+        if len(branches) > 1:
+            # Prompt the user to choose the branch
+            print("The commit is found on multiple branches:")
+            for i, branch in enumerate(branches):
+                print(f"{i+1}. {branch}")
+
+            while True:
+                try:
+                    branch_index = int(
+                        input("Enter the number of the branch to create the tag: ")
+                    )
+                    if branch_index < 1 or branch_index > len(branches):
+                        raise ValueError("Invalid branch index")
+                    branch = branches[branch_index - 1]
+                    break
+                except ValueError:
+                    print("Invalid branch index. Please enter a valid index.")
+        else:
+            branch = branches[0]
+
+        # Fetch the branch containing the commit hash
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_path,
+                "fetch",
+                "origin",
+                branch + ":refs/remotes/origin/" + branch,
+            ]
+        )
+
+        # Checkout the branch containing the commit hash
+        subprocess.run(["git", "-C", repo_path, "checkout", branch])
+
+        # Update the origin remote
         subprocess.run(
             [
                 "git",
@@ -458,18 +564,31 @@ def try_clone_repo(
             ]
         )
 
-        subprocess.run(["git", "-C", repo_path, "push", "-u", "origin", "main"])
+        # Push the branch to the remote audit repository as 'main'
+        # subprocess.run(f"git -C {repo_path} push -u origin {branch}:{MAIN_BRANCH_NAME}")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_path,
+                "push",
+                "-u",
+                "origin",
+                f"{branch}:{MAIN_BRANCH_NAME}",
+            ]
+        )
 
-    except GithubException as e:
-        log.error(f"Error cloning repository: {e}")
+    except Exception as e:
+        log.error(f"Error extracting branch of commit hash: {e}")
         repo.delete()
-        subprocess.run(["rm", "-rf", repo_path])
         exit()
 
     return repo
 
 
 def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
+    log.info("Creating audit tag...")
+
     try:
         tag = repo.create_git_tag(
             tag="cyfrin-audit",
@@ -485,56 +604,8 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
         log.info("Attempting to create tag manually...")
 
         try:
-            subprocess.run(["git", "-C", repo_path, "fetch", "origin"])
-
-            # Identify the branch containing the commit using `git branch --contains`
-            completed_process = subprocess.run(
-                ["git", "-C", repo_path, "branch", "-r", "--contains", commit_hash],
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-
-            branches = [
-                b.strip().split("/", 1)[1]
-                for b in completed_process.stdout.strip().split("\n")
-                if not b.strip().startswith("HEAD ->")
-            ]
-
-            if not branches:
-                raise Exception(f"Commit {commit_hash} not found in any branch")
-
-            if len(branches) > 1:
-                # Prompt the user to choose the branch
-                print("The commit is found on multiple branches:")
-                for i, branch in enumerate(branches):
-                    print(f"{i+1}. {branch}")
-
-                while True:
-                    try:
-                        branch_index = int(
-                            input("Enter the number of the branch to create the tag: ")
-                        )
-                        if branch_index < 1 or branch_index > len(branches):
-                            raise ValueError("Invalid branch index")
-                        branch = branches[branch_index - 1]
-                        break
-                    except ValueError:
-                        print("Invalid branch index. Please enter a valid index.")
-            else:
-                branch = branches[0]
-
-            # Fetch the branch containing the commit hash
-            subprocess.run(["git", "-C", repo_path, "fetch", "origin", branch])
-
-            # Checkout the branch containing the commit hash
-            subprocess.run(["git", "-C", repo_path, "checkout", branch])
-
             # Create the tag at the specific commit hash
             subprocess.run(["git", "-C", repo_path, "tag", "cyfrin-audit", commit_hash])
-
-            # Push the branch to the remote repository
-            subprocess.run(["git", "-C", repo_path, "push", "origin", branch])
 
             # Push the tag to the remote repository
             subprocess.run(["git", "-C", repo_path, "push", "origin", "cyfrin-audit"])

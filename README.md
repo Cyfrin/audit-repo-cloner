@@ -67,13 +67,13 @@ pip install -e .
 You'll know you've installed it correctly if you can run:
 
 ```
-audit-repo-cloner --version
+audit_repo_cloner --version
 ```
 
 And get an output like:
 
 ```
-audit-repo-cloner, version 0.2.2
+audit_repo_cloner, version 0.2.2
 ```
 
 ## Getting a GitHub token
@@ -96,7 +96,7 @@ Note: this access token is only used to create the repo initially. To allow the 
 ## Help
 
 ```
-audit-repo-cloner --help
+audit_repo_cloner --help
 ```
 
 ## As a single command
@@ -109,11 +109,11 @@ python ./create_audit_repo.py`
 Otherwise (pipx):
 
 ```
-audit-repo-cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --target-repo-name "" --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "tricky-p blue-frog-man giiioooooooo" --organization cyfrin --github-token <YOUR_ACCESS_TOKEN>
+audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --target-repo-name "" --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "tricky-p blue-frog-man giiioooooooo" --organization cyfrin --github-token <YOUR_ACCESS_TOKEN>
 ```
 
 ```
-$ audit-repo-cloner 
+$ audit_repo_cloner 
 "Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:
 
 1) Source repo url: 
