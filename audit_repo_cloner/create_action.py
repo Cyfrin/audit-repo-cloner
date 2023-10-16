@@ -3,7 +3,6 @@ from github import GithubException
 
 def create_action(repo, workflow_name, generator_path, branch_name, datetime):
     try:
-
         # Define the contents of the workflow file
         workflow_contents = f"""name: {workflow_name}
 

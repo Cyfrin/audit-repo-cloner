@@ -38,10 +38,10 @@ SEVERITY_DATA = [
     {"name": "Severity: Low Risk", "color": "FBCA04"},
     {"name": "Severity: Informational", "color": "1D76DB"},
     {"name": "Severity: Gas Optimization", "color": "B4E197"},
-    { "name": "Report Status: Open", "color": "5319E7"},
-    { "name": "Report Status: Acknowledged", "color": "BFA8DC"},
-    { "name": "Report Status: Resolved", "color": "0E8A16"},
-    { "name": "Report Status: Closed", "color": "bfdadc"}
+    {"name": "Report Status: Open", "color": "5319E7"},
+    {"name": "Report Status: Acknowledged", "color": "BFA8DC"},
+    {"name": "Report Status: Resolved", "color": "0E8A16"},
+    {"name": "Report Status: Closed", "color": "bfdadc"},
 ]
 TRELLO_LABELS = [
     "Archived",
