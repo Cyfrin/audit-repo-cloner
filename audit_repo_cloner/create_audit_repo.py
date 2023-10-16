@@ -45,7 +45,11 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     help="Have this CLI be interactive by prompting or pass in args via the command.",
 )
 @click.option("--source-url", default=None, help="Source repository URL.")
-@click.option(|"--target-name", default=None, help="Target repository name (leave blank to use source repo name).")
+@click.option(
+    "--target-name",
+    default=None,
+    help="Target repository name (leave blank to use source repo name).",
+)
 @click.option("--commit-hash", default=None, help="Audit commit hash.")
 @click.option(
     "--auditors", default=None, help="Names of the auditors (separated by spaces)."
@@ -91,7 +95,14 @@ def create_audit_repo(
         None
     """
     if config:
-        (source_url, target_repo_name, commit_hash, auditors, github_token, organization) = load_config(
+        (
+            source_url,
+            target_repo_name,
+            commit_hash,
+            auditors,
+            github_token,
+            organization,
+        ) = load_config(
             config,
             source_url=source_url,
             taget_name=taget_name,
@@ -101,7 +112,13 @@ def create_audit_repo(
             organization=organization,
         )
     if prompt:
-        source_url, target_repo_name, commit_hash, auditors, organization = prompt_for_details(
+        (
+            source_url,
+            target_repo_name,
+            commit_hash,
+            auditors,
+            organization,
+        ) = prompt_for_details(
             source_url, target_repo_name, commit_hash, auditors, organization
         )
     if not source_url or not commit_hash or not auditors or not organization:
@@ -112,8 +129,8 @@ def create_audit_repo(
         raise click.UsageError(
             "GitHub token must be provided either through config or environment variable."
         )
-    
-    source_url = source_url.replace(".git", "") # remove .git from the url
+
+    source_url = source_url.replace(".git", "")  # remove .git from the url
     url_parts = source_url.split("/")
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
@@ -125,7 +142,6 @@ def create_audit_repo(
         target_repo_name = source_repo_name
 
     with tempfile.TemporaryDirectory() as temp_dir:
-
         repo = try_clone_repo(
             github_token,
             organization,
@@ -140,14 +156,30 @@ def create_audit_repo(
         repo = replace_labels_in_repo(repo)
         repo = create_branches_for_auditors(repo, auditors_list, commit_hash)
         repo = create_report_branch(repo, commit_hash)
-        repo = add_subtree(repo, source_repo_name, target_repo_name, source_username, organization, temp_dir, subtree_path, commit_hash)
+        repo = add_subtree(
+            repo,
+            source_repo_name,
+            target_repo_name,
+            source_username,
+            organization,
+            temp_dir,
+            subtree_path,
+            commit_hash,
+        )
         repo = set_up_ci(repo, subtree_path)
         repo = set_up_project_board(repo, source_username, target_repo_name)
     print("Done!")
 
 
 def add_subtree(
-    repo: Repository, source_repo_name: str, target_repo_name: str, source_username: str, organization: str, repo_path: str, subtree_path: str, commit_hash: str
+    repo: Repository,
+    source_repo_name: str,
+    target_repo_name: str,
+    source_username: str,
+    organization: str,
+    repo_path: str,
+    subtree_path: str,
+    commit_hash: str,
 ):
     # Add report-generator-template as a subtree
 
@@ -177,26 +209,29 @@ def add_subtree(
             check=True,
         )
 
-        with open(f"{repo_path}/{subtree_path}/source/summary_information.conf", "r") as f:
+        with open(
+            f"{repo_path}/{subtree_path}/source/summary_information.conf", "r"
+        ) as f:
             summary_information = f.read()
             summary_information = summary_information.replace(
                 r"^project_github = .*$",
-                f"project_github = https://github.com/{source_username}/{source_repo_name}.git"
+                f"project_github = https://github.com/{source_username}/{source_repo_name}.git",
             )
 
             summary_information = summary_information.replace(
                 r"^private_github = .*$",
-                f"private_github = https://github.com/{organization}/{target_repo_name}.git"
+                f"private_github = https://github.com/{organization}/{target_repo_name}.git",
             )
 
             summary_information = summary_information.replace(
-                r"^commit_hash = .*$",
-                f"commit_hash = {commit_hash}"
+                r"^commit_hash = .*$", f"commit_hash = {commit_hash}"
             )
 
-            with open(f"{repo_path}/{subtree_path}/source/summary_information.conf", "w") as f:
+            with open(
+                f"{repo_path}/{subtree_path}/source/summary_information.conf", "w"
+            ) as f:
                 f.write(summary_information)
-        
+
         subprocess.run(f"git -C {repo_path} add .", shell=True, check=True)
         subprocess.run(
             f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'",
@@ -218,7 +253,7 @@ def add_subtree(
         log.error(f"Error adding subtree: {e}")
         repo.delete()
         exit()
-    
+
     return repo
 
 
@@ -309,7 +344,7 @@ def load_config(
             if target_repo_name is None
             else target_repo_name
         )
-        
+
         auditors = (
             config_data.get("auditors", auditors) if auditors is None else auditors
         )
@@ -378,12 +413,11 @@ def try_clone_repo(
         print(f"Checking whether {target_repo_name} already exists...")
         git_command = [
             "git",
-            "ls-remote"
-            "-h",
+            "ls-remote" "-h",
             f"https://{github_token}@github.com/{organization}/{target_repo_name}",
-            "&> /dev/null"
+            "&> /dev/null",
         ]
-        
+
         subprocess.check_output(git_command, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         if e.returncode == 128:
