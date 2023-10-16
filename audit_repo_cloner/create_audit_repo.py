@@ -464,6 +464,7 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
             branches = [
                 b.strip().split("/", 1)[1]
                 for b in completed_process.stdout.strip().split("\n")
+                if not b.strip().startswith("HEAD ->")
             ]
 
             if not branches:
