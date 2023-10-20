@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository
 from dotenv import load_dotenv
-from .create_action import create_action
+from create_action import create_action
 import click
 import subprocess
 import logging as log
@@ -44,7 +44,7 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     help="Have this CLI be interactive by prompting or pass in args via the command.",
 )
 @click.option("--source-url", default=None, help="Source repository URL.")
-@click.option(|"--target-name", default=None, help="Target repository name (leave blank to use source repo name).")
+@click.option("--target-name", default=None, help="Target repository name (leave blank to use source repo name).")
 @click.option("--commit-hash", default=None, help="Audit commit hash.")
 @click.option(
     "--auditors", default=None, help="Names of the auditors (separated by spaces)."
