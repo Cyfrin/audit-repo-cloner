@@ -3,16 +3,16 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository, Organization
 from dotenv import load_dotenv
-from create_action import create_action
+from .create_action import create_action
 import click
 import subprocess
 import tempfile
 import logging as log
 import yaml
 import re
-from __version__ import __version__, __title__
+from .__version__ import __version__, __title__
 
-from constants import (
+from .constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
@@ -39,40 +39,22 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     prog_name=__title__,
 )
 @click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
-@click.option(
-    "--prompt/--no-prompt",
-    default=True,
-    help="Have this CLI be interactive by prompting or pass in args via the command.",
-)
-@click.option("--source-url", default=None, help="Source repository URL.")
-@click.option(
-    "--target-repo-name",
-    default=None,
-    help="Target repository name (leave blank to use source repo name).",
-)
-@click.option("--commit-hash", default=None, help="Audit commit hash.")
-@click.option(
-    "--auditors", default=None, help="Names of the auditors (separated by spaces)."
-)
-@click.option(
-    "--github-token",
-    default=os.getenv("ACCESS_TOKEN"),
-    help="Your GitHub developer token to make API calls.",
-)
-@click.option(
-    "--organization",
-    default=os.getenv("GITHUB_ORGANIZATION"),
-    help="Your GitHub organization name in which to clone the repo.",
-)
+@click.option("--prompt/--no-prompt", help="Have this CLI be interactive by prompting or pass in args via the command.")
+@click.option("--source-url", help="Source repository URL.")
+@click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).")
+@click.option("--commit-hash", help="Audit commit hash.")
+@click.option("--auditors", help="Names of the auditors (separated by spaces).")
+@click.option("--github-token",help="Your GitHub developer token to make API calls.")
+@click.option("--organization",help="Your GitHub organization name in which to clone the repo.")
 def create_audit_repo(
-    config: str,
-    prompt: bool,
-    source_url: str,
-    target_repo_name: str,
-    commit_hash: str,
-    auditors: str,
-    github_token: str,
-    organization: str,
+    config: str = "",
+    prompt: bool = True,
+    source_url: str = None,
+    target_repo_name: str = None,
+    commit_hash: str = None,
+    auditors: str = None,
+    github_token: str = os.getenv("ACCESS_TOKEN"),
+    organization: str =os.getenv("GITHUB_ORGANIZATION"),
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
     If the prompt flag is set to true (default), the user will be prompted for the source repository URL and auditor names.
@@ -93,7 +75,6 @@ def create_audit_repo(
         (
             source_url,
             target_repo_name,
-            commit_hash,
             auditors,
             github_token,
             organization,
@@ -101,7 +82,6 @@ def create_audit_repo(
             config,
             source_url=source_url,
             target_repo_name=target_repo_name,
-            commit_hash=commit_hash,
             auditors=auditors,
             github_token=github_token,
             organization=organization,
@@ -185,19 +165,19 @@ def add_subtree(
 
         # Pull the latest changes from the origin
         subprocess.run(
-            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase", shell=True
+            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase", shell=True, check=False
         )
-        subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True)
+        subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
 
         # Add the subtree to the repo
         subprocess.run(
             f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} {MAIN_BRANCH_NAME} --squash",
-            shell=True,
+            shell=True, check=False
         )
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         subprocess.run(
             f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml {repo_path}/.github/workflows/main.yml",
-            shell=True,
+            shell=True, check=False
         )
 
         with open(
@@ -233,12 +213,12 @@ def add_subtree(
 
         subprocess.run(f"git -C {repo_path} add .", shell=True)
         subprocess.run(
-            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'", shell=True
+            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'", shell=True, check=False
         )
 
         # Push the changes back to the origin
         subprocess.run(
-            f"git -C {repo_path} push origin {REPORT_BRANCH_NAME}", shell=True
+            f"git -C {repo_path} push origin {REPORT_BRANCH_NAME}", shell=True, check=False
         )
 
         print(
@@ -487,7 +467,7 @@ def create_and_clone_repo(
                 "clone",
                 f"https://{github_token}@github.com/{source_username}/{source_repo_name}.git",
                 repo_path,
-            ]
+            ], check=False
         )
 
     except GithubException as e:
@@ -496,7 +476,7 @@ def create_and_clone_repo(
         exit()
 
     try:
-        subprocess.run(["git", "-C", repo_path, "fetch", "origin"])
+        subprocess.run(["git", "-C", repo_path, "fetch", "origin"], check=False)
 
         # Identify the branch containing the commit using `git branch --contains`
         completed_process = subprocess.run(
@@ -545,11 +525,11 @@ def create_and_clone_repo(
                 "fetch",
                 "origin",
                 branch + ":refs/remotes/origin/" + branch,
-            ]
+            ], check=False
         )
 
         # Checkout the branch containing the commit hash
-        subprocess.run(["git", "-C", repo_path, "checkout", branch])
+        subprocess.run(["git", "-C", repo_path, "checkout", branch], check=False)
 
         # Update the origin remote
         subprocess.run(
@@ -561,7 +541,7 @@ def create_and_clone_repo(
                 "set-url",
                 "origin",
                 f"https://{github_token}@github.com/{organization}/{target_repo_name}.git",
-            ]
+            ], check=False
         )
 
         # Push the branch to the remote audit repository as 'main'
@@ -575,7 +555,7 @@ def create_and_clone_repo(
                 "-u",
                 "origin",
                 f"{branch}:{MAIN_BRANCH_NAME}",
-            ]
+            ], check=False
         )
 
     except Exception as e:
