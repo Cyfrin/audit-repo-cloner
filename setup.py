@@ -9,7 +9,7 @@ if CURRENT_PYTHON < REQUIRED_PYTHON:
     sys.stderr.write(
         """
 ==========================
-Unsupported Python versionw
+Unsupported Python version
 ==========================
 This version of Requests requires at least Python {}.{}, but
 you're trying to install it on Python {}.{}. To resolve this,
@@ -26,7 +26,7 @@ with open(os.path.join(here, "README.md"), "r") as f:
     readme = f.read()
 
 about = {}
-with open(os.path.join(here, "audit_repo_clone_test", "__version__.py"), "r") as f:
+with open(os.path.join(here, "audit_repo_cloner", "__version__.py"), "r") as f:
     exec(f.read(), about)
 
 setup(
@@ -64,7 +64,7 @@ setup(
     ],
     packages=[about["__title__"]],
     python_requires=">=3.7, <4",
-    url="https://github.com/bensacc/audit-repo-cloner.git",
+    url="https://github.com/Cyfrin/audit-repo-cloner",
     long_description=readme,
     long_description_content_type="text/markdown",
     classifiers=[
@@ -78,7 +78,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "audit_repo_clone_test = audit_repo_clone_test:create_audit_repo",
+            "audit_repo_cloner = audit_repo_cloner:create_audit_repo",
         ],
     },
 )
