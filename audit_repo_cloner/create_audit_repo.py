@@ -39,7 +39,6 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     prog_name=__title__,
 )
 @click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
-@click.option("--prompt/--no-prompt", help="Have this CLI be interactive by prompting or pass in args via the command.")
 @click.option("--source-url", help="Source repository URL.")
 @click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).")
 @click.option("--commit-hash", help="Audit commit hash.")
@@ -48,7 +47,6 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 @click.option("--organization",help="Your GitHub organization name in which to clone the repo.")
 def create_audit_repo(
     config: str = "",
-    prompt: bool = True,
     source_url: str = None,
     target_repo_name: str = None,
     commit_hash: str = None,
@@ -57,11 +55,9 @@ def create_audit_repo(
     organization: str =os.getenv("GITHUB_ORGANIZATION"),
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
-    If the prompt flag is set to true (default), the user will be prompted for the source repository URL and auditor names.
-    If the prompt flag is set to false, the function will use the provided click arguments for the source repository URL and auditor names.
+    If config file is not provided, the user will be prompted for any parameter values not provided.
 
     Args:
-        prompt (bool): Determines if the script should use default prompts for input or the provided click arguments.
         source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
         target_repo_name (str): The name of the target repository to be created.
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
@@ -80,13 +76,13 @@ def create_audit_repo(
             organization,
         ) = load_config(
             config,
-            source_url=source_url,
-            target_repo_name=target_repo_name,
-            auditors=auditors,
-            github_token=github_token,
-            organization=organization,
+            source_url,
+            target_repo_name,
+            auditors,
+            github_token,
+            organization,
         )
-    if prompt or not config:
+    else:
         (
             source_url,
             target_repo_name,
@@ -104,7 +100,7 @@ def create_audit_repo(
         )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
-            "Source URL, commit hash, organization, and auditors must be provided either through --prompt, config, or as options."
+            "Source URL, commit hash, organization, and auditors must be provided either through config, or as options."
         )
     if not github_token:
         raise click.UsageError(
@@ -315,31 +311,16 @@ def load_config(
     """
     with open(config, "r") as f:
         config_data = yaml.safe_load(f)
-        source_url = (
-            config_data.get("source_url", source_url)
-            if source_url is None
-            else source_url
-        )
-
-        target_repo_name = (
-            config_data.get("target_repo_name", target_repo_name)
-            if target_repo_name is None
-            else target_repo_name
-        )
-
-        auditors = (
-            config_data.get("auditors", auditors) if auditors is None else auditors
-        )
-        github_token = (
-            config_data.get("github_token", github_token)
-            if github_token is None
-            else github_token
-        )
-        organization = (
-            config_data.get("organization", organization)
-            if organization is None
-            else organization
-        )
+        if not source_url:
+            source_url = (config_data.get("source_url", source_url))
+        if not target_repo_name:
+            target_repo_name = (config_data.get("target_repo_name", target_repo_name))
+        if not auditors:
+            auditors = (config_data.get("auditors", auditors))
+        if not github_token:
+            github_token = (config_data.get("github_token", github_token))
+        if not organization:
+            organization = (config_data.get("organization", organization))
     return source_url, target_repo_name, auditors, github_token, organization
 
 
