@@ -86,15 +86,21 @@ def create_audit_repo(
             github_token=github_token,
             organization=organization,
         )
-    if prompt:
+    if prompt or not config:
         (
             source_url,
             target_repo_name,
             commit_hash,
             auditors,
+            github_token,
             organization,
         ) = prompt_for_details(
-            source_url, target_repo_name, commit_hash, auditors, organization
+            source_url, 
+            target_repo_name, 
+            commit_hash, 
+            auditors, 
+            github_token,
+            organization
         )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
@@ -342,6 +348,7 @@ def prompt_for_details(
     target_repo_name: str,
     commit_hash: str,
     auditors: str,
+    github_token: str,
     organization: str,
 ):
     while True:
@@ -366,6 +373,10 @@ def prompt_for_details(
             auditors = input(
                 f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): "
             )
+        if not github_token:
+            github_token = input(
+                f"\n{prompt_counter}) Enter you Github token: "
+            )            
             prompt_counter += 1
         if not organization:
             organization = input(
@@ -373,10 +384,10 @@ def prompt_for_details(
             )
             prompt_counter += 1
 
-        if source_url and commit_hash and auditors and organization:
+        if source_url and commit_hash and auditors and github_token and organization:
             break
         print("Please fill in all the details.")
-    return source_url, target_repo_name, commit_hash, auditors, organization
+    return source_url, target_repo_name, commit_hash, auditors, github_token, organization
 
 
 def try_clone_repo(
