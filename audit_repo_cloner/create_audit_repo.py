@@ -3,16 +3,16 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository, Organization
 from dotenv import load_dotenv
-from .create_action import create_action
+from create_action import create_action
 import click
 import subprocess
 import tempfile
 import logging as log
 import yaml
 import re
-from .__version__ import __version__, __title__
+from __version__ import __version__, __title__
 
-from .constants import (
+from constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
