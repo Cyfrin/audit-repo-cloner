@@ -39,47 +39,25 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     prog_name=__title__,
 )
 @click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
-@click.option(
-    "--prompt/--no-prompt",
-    default=True,
-    help="Have this CLI be interactive by prompting or pass in args via the command.",
-)
-@click.option("--source-url", default=None, help="Source repository URL.")
-@click.option(
-    "--target-repo-name",
-    default=None,
-    help="Target repository name (leave blank to use source repo name).",
-)
-@click.option("--commit-hash", default=None, help="Audit commit hash.")
-@click.option(
-    "--auditors", default=None, help="Names of the auditors (separated by spaces)."
-)
-@click.option(
-    "--github-token",
-    default=os.getenv("ACCESS_TOKEN"),
-    help="Your GitHub developer token to make API calls.",
-)
-@click.option(
-    "--organization",
-    default=os.getenv("GITHUB_ORGANIZATION"),
-    help="Your GitHub organization name in which to clone the repo.",
-)
+@click.option("--source-url", help="Source repository URL.")
+@click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).")
+@click.option("--commit-hash", help="Audit commit hash.")
+@click.option("--auditors", help="Names of the auditors (separated by spaces).")
+@click.option("--github-token",help="Your GitHub developer token to make API calls.")
+@click.option("--organization",help="Your GitHub organization name in which to clone the repo.")
 def create_audit_repo(
-    config: str,
-    prompt: bool,
-    source_url: str,
-    target_repo_name: str,
-    commit_hash: str,
-    auditors: str,
-    github_token: str,
-    organization: str,
+    config: str = "",
+    source_url: str = None,
+    target_repo_name: str = None,
+    commit_hash: str = None,
+    auditors: str = None,
+    github_token: str = os.getenv("ACCESS_TOKEN"),
+    organization: str =os.getenv("GITHUB_ORGANIZATION"),
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
-    If the prompt flag is set to true (default), the user will be prompted for the source repository URL and auditor names.
-    If the prompt flag is set to false, the function will use the provided click arguments for the source repository URL and auditor names.
+    If config file is not provided, the user will be prompted for any parameter values not provided.
 
     Args:
-        prompt (bool): Determines if the script should use default prompts for input or the provided click arguments.
         source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
         target_repo_name (str): The name of the target repository to be created.
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
@@ -99,26 +77,32 @@ def create_audit_repo(
             organization,
         ) = load_config(
             config,
-            source_url=source_url,
-            target_repo_name=target_repo_name,
-            commit_hash=commit_hash,
-            auditors=auditors,
-            github_token=github_token,
-            organization=organization,
+            source_url,
+            target_repo_name,
+            commit_hash,
+            auditors,
+            github_token,
+            organization,
         )
-    if prompt:
+    else:
         (
             source_url,
             target_repo_name,
             commit_hash,
             auditors,
+            github_token,
             organization,
         ) = prompt_for_details(
-            source_url, target_repo_name, commit_hash, auditors, organization
+            source_url, 
+            target_repo_name, 
+            commit_hash, 
+            auditors, 
+            github_token,
+            organization
         )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
-            "Source URL, commit hash, organization, and auditors must be provided either through --prompt, config, or as options."
+            "Source URL, commit hash, organization, and auditors must be provided either through config, or as options."
         )
     if not github_token:
         raise click.UsageError(
@@ -185,19 +169,19 @@ def add_subtree(
 
         # Pull the latest changes from the origin
         subprocess.run(
-            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase", shell=True
+            f"git -C {repo_path} pull origin {REPORT_BRANCH_NAME} --rebase", shell=True, check=False
         )
-        subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True)
+        subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
 
         # Add the subtree to the repo
         subprocess.run(
             f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} {MAIN_BRANCH_NAME} --squash",
-            shell=True,
+            shell=True, check=False
         )
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         subprocess.run(
             f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml {repo_path}/.github/workflows/main.yml",
-            shell=True,
+            shell=True, check=False
         )
 
         with open(
@@ -233,12 +217,12 @@ def add_subtree(
 
         subprocess.run(f"git -C {repo_path} add .", shell=True)
         subprocess.run(
-            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'", shell=True
+            f"git -C {repo_path}  commit -m 'install: {SUBTREE_NAME}'", shell=True, check=False
         )
 
         # Push the changes back to the origin
         subprocess.run(
-            f"git -C {repo_path} push origin {REPORT_BRANCH_NAME}", shell=True
+            f"git -C {repo_path} push origin {REPORT_BRANCH_NAME}", shell=True, check=False
         )
 
         print(
@@ -329,31 +313,16 @@ def load_config(
     """
     with open(config, "r") as f:
         config_data = yaml.safe_load(f)
-        source_url = (
-            config_data.get("source_url", source_url)
-            if source_url is None
-            else source_url
-        )
-
-        target_repo_name = (
-            config_data.get("target_repo_name", target_repo_name)
-            if target_repo_name is None
-            else target_repo_name
-        )
-
-        auditors = (
-            config_data.get("auditors", auditors) if auditors is None else auditors
-        )
-        github_token = (
-            config_data.get("github_token", github_token)
-            if github_token is None
-            else github_token
-        )
-        organization = (
-            config_data.get("organization", organization)
-            if organization is None
-            else organization
-        )
+        if not source_url:
+            source_url = (config_data.get("source_url", source_url))
+        if not target_repo_name:
+            target_repo_name = (config_data.get("target_repo_name", target_repo_name))
+        if not auditors:
+            auditors = (config_data.get("auditors", auditors))
+        if not github_token:
+            github_token = (config_data.get("github_token", github_token))
+        if not organization:
+            organization = (config_data.get("organization", organization))
     return source_url, target_repo_name, auditors, github_token, organization
 
 
@@ -362,6 +331,7 @@ def prompt_for_details(
     target_repo_name: str,
     commit_hash: str,
     auditors: str,
+    github_token: str,
     organization: str,
 ):
     while True:
@@ -386,6 +356,10 @@ def prompt_for_details(
             auditors = input(
                 f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): "
             )
+        if not github_token:
+            github_token = input(
+                f"\n{prompt_counter}) Enter you Github token: "
+            )            
             prompt_counter += 1
         if not organization:
             organization = input(
@@ -393,10 +367,10 @@ def prompt_for_details(
             )
             prompt_counter += 1
 
-        if source_url and commit_hash and auditors and organization:
+        if source_url and commit_hash and auditors and github_token and organization:
             break
         print("Please fill in all the details.")
-    return source_url, target_repo_name, commit_hash, auditors, organization
+    return source_url, target_repo_name, commit_hash, auditors, github_token, organization
 
 
 def try_clone_repo(
@@ -487,7 +461,7 @@ def create_and_clone_repo(
                 "clone",
                 f"https://{github_token}@github.com/{source_username}/{source_repo_name}.git",
                 repo_path,
-            ]
+            ], check=False
         )
 
     except GithubException as e:
@@ -496,7 +470,7 @@ def create_and_clone_repo(
         exit()
 
     try:
-        subprocess.run(["git", "-C", repo_path, "fetch", "origin"])
+        subprocess.run(["git", "-C", repo_path, "fetch", "origin"], check=False)
 
         # Identify the branch containing the commit using `git branch --contains`
         completed_process = subprocess.run(
@@ -545,11 +519,11 @@ def create_and_clone_repo(
                 "fetch",
                 "origin",
                 branch + ":refs/remotes/origin/" + branch,
-            ]
+            ], check=False
         )
 
         # Checkout the branch containing the commit hash
-        subprocess.run(["git", "-C", repo_path, "checkout", branch])
+        subprocess.run(["git", "-C", repo_path, "checkout", branch], check=False)
 
         # Update the origin remote
         subprocess.run(
@@ -561,7 +535,7 @@ def create_and_clone_repo(
                 "set-url",
                 "origin",
                 f"https://{github_token}@github.com/{organization}/{target_repo_name}.git",
-            ]
+            ], check=False
         )
 
         # Push the branch to the remote audit repository as 'main'
@@ -575,7 +549,7 @@ def create_and_clone_repo(
                 "-u",
                 "origin",
                 f"{branch}:{MAIN_BRANCH_NAME}",
-            ]
+            ], check=False
         )
 
     except Exception as e:
