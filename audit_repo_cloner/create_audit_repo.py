@@ -71,6 +71,7 @@ def create_audit_repo(
         (
             source_url,
             target_repo_name,
+            commit_hash,
             auditors,
             github_token,
             organization,
@@ -78,6 +79,7 @@ def create_audit_repo(
             config,
             source_url,
             target_repo_name,
+            commit_hash,
             auditors,
             github_token,
             organization,
