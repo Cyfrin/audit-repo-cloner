@@ -141,7 +141,6 @@ def create_audit_repo(
             commit_hash,
         )
         repo = set_up_ci(repo, subtree_path)
-        # repo = set_up_project_board(repo, source_username, target_repo_name)
         # create project board optionally
         if project_template_id and project_title:
             set_up_project_board(token=github_token, org_name=organization, project_template_id=project_template_id, project_title=project_title)
