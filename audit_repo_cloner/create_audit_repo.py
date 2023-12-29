@@ -39,7 +39,6 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     version=__version__,
     prog_name=__title__,
 )
-@click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
 @click.option("--source-url", help="Source repository URL.", default=os.getenv("SOURCE_REPO_URL"))
 @click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).", default=os.getenv("TARGET_REPO_NAME"))
 @click.option("--commit-hash", help="Audit commit hash.", default=os.getenv("COMMIT_HASH"))
