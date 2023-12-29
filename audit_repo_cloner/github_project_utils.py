@@ -47,7 +47,7 @@ def clone_project(token: str, org_name: str, project_template_id:str, project_ti
     Clone a GitHub project from the template
         token (str): GitHub personal access token
         org_node_id (str): GitHub Organization node ID (can be retrieved by calling get_organization_node_id)
-        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/KupiaSec/projects/7/views/2 => 7 is the ID)
+        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/7/views/2 => 7 is the ID)
         project_title (Optional[str]): Name of the new project, if empty 'CLONED PROJECT' will be used.
 
         Return the cloned project's ID, empty string on failure
