@@ -49,7 +49,6 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 @click.option("--project-template-id", help="ID of the GitHub project board template.", default=os.getenv("PROJECT_TEMPLATE_ID"))
 @click.option("--project-title", help="Title of the new project board on GitHub.", default=os.getenv("PROJECT_TITLE"))
 def create_audit_repo(
-    config: str = "",
     source_url: str = None,
     target_repo_name: str = None,
     commit_hash: str = None,
