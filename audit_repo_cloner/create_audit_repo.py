@@ -96,7 +96,7 @@ def create_audit_repo(
     )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
-            "Source URL, commit hash, organization, and auditors must be provided either through config, or as options."
+            "Source URL, commit hash, organization, and auditors must be provided either through environment variables, or as options."
         )
     if not github_token:
         raise click.UsageError(
