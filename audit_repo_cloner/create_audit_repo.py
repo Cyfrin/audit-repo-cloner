@@ -60,7 +60,6 @@ def create_audit_repo(
     project_title: str = None
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
-    If config file is not provided, the user will be prompted for any parameter values not provided.
 
     Args:
         source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
