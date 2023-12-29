@@ -27,7 +27,7 @@ def get_project_node_id(token: str, org_name:str, project_template_id: str)->str
     Get the GitHub organization's node id to use for later call to GraphQL
         token (str): GitHub personal access token
         org_name (str): GitHub organization name (username)
-        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/KupiaSec/projects/7/views/2 => 7 is the ID)
+        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/7/views/2 => 7 is the ID)
 
         Return the node ID of the project, empty string on failure
     """
