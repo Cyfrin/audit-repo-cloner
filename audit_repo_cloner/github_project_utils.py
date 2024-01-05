@@ -1,82 +1,195 @@
-import json
-import os
-import requests
+from github import Repository
+from gql import gql, Client
+from gql.transport.requests import RequestsHTTPTransport
 
-def get_organization_node_id(token: str, org_name: str)->str:
+
+def get_node_ids(client: Client, organization: str, target_repo_name: str) -> tuple[str, str]:
+    query = gql(
+        """
+    query GetNodeIds($owner: String!, $repo_name: String!) {
+        repository(owner: $owner, name: $repo_name) {
+            id
+            owner {
+                id
+            }
+        }
+    }
     """
-    Get the GitHub organization's node id to use for later call to GraphQL
-        token (str): GitHub personal access token
-        org_name (str): GitHub organization name (username)
+    )
 
-        Return the node ID of the organization, empty string on failure
+    query_variables = {"owner": organization, "repo_name": target_repo_name}
+
+    try:
+        response = client.execute(query, variable_values=query_variables)
+        repo_node_id = response["repository"]["id"]
+        org_node_id = response["repository"]["owner"]["id"]
+        print(f"Node ID of the repository is: {repo_node_id}")
+        print(f"Node ID of the owner is: {org_node_id}")
+        return repo_node_id, org_node_id
+    except Exception as e:
+        raise Exception(f"Error occurred while getting owner/repo node ids: {str(e)}")
+
+
+def copy_project(client: Client, owner_node_id: str, project_template_id: str, project_title: str) -> str:
+    # GraphQL Mutation for copying a project
+    create_project_mutation = gql(
+        """
+        mutation CopyProjectV2($input: CopyProjectV2Input!) {
+            copyProjectV2(input: $input) {
+                projectV2 {
+                    id
+                    title
+                }
+            }
+        }
     """
-    url = f"https://api.github.com/users/{org_name}"
+    )
 
-    payload = {}
-    headers = {
-    'Authorization': f'token {token}',
-    'Accept': 'application/vnd.github+json'
+    # Variables for the mutation
+    copy_mutation_variables = {
+        "input": {
+            "ownerId": owner_node_id,
+            "projectId": project_template_id,
+            "title": project_title,
+        }
     }
 
-    response = requests.request("GET", url, headers=headers, data=payload)
-    res = response.json()
-    return res.get('node_id', '')
-
-def get_project_node_id(token: str, org_name:str, project_template_id: str)->str:
+    try:
+        # Execute the mutation
+        response = client.execute(
+            create_project_mutation, variable_values=copy_mutation_variables
+        )
+        project_id = response["copyProjectV2"]["projectV2"]["id"]
+        project_title = response["copyProjectV2"]["projectV2"]["title"]
+        print(
+            f"Project {project_title} has been created successfully with id {project_id}"
+        )
+        return project_id
+    except Exception as e:
+        raise Exception(f"Error occurred while copying the template project: {str(e)}")
+    
+def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> str:
+    # GraphQL Mutation for linking a project to a repo
+    link_project_mutation = gql(
+        """
+        mutation LinkProjectV2ToRepository($input: LinkProjectV2ToRepositoryInput!) {
+            linkProjectV2ToRepository(input: $input) {
+                repository
+            }
+        }
     """
-    Get the GitHub organization's node id to use for later call to GraphQL
-        token (str): GitHub personal access token
-        org_name (str): GitHub organization name (username)
-        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/7/views/2 => 7 is the ID)
+    )
 
-        Return the node ID of the project, empty string on failure
-    """
-     # get the project ID
-    url = "https://api.github.com/graphql"
-    payload = "{\"query\":\"query{organization(login: \\\""+org_name+"\\\") {projectV2(number: "+project_template_id+"){id}}}\",\"variables\":{}}"
-    headers = {
-        'Authorization': f'token {token}',
+    # Variables for the mutation
+    link_mutation_variables = {
+        "input": {
+            "projectId": project_id,
+            "repositoryId": repo_node_id,
+        }
     }
-    response = requests.request("POST", url, headers=headers, data=payload)
-    res = response.json()
-    return res.get('data', {}).get('organization', {}).get('projectV2', {}).get('id', '')
+
+    try:
+        # Execute the mutation
+        response = client.execute(
+            link_project_mutation, variable_values=link_mutation_variables
+        )
+        print(
+            f"Project with id {project_id} has been successfully linked to the repo."
+        )
+        return project_id
+    except Exception as e:
+        raise Exception(f"Error occurred while linking the project to the repo: {str(e)}")
 
 
-def clone_project(token: str, org_name: str, project_template_id:str, project_title:str = '')->str:
+def update_project(client: Client, target_repo_name: str, project_id: str, project_title: str):
+    # GraphQL Mutation for updating a project
+    update_project_mutation = gql(
+        """
+        mutation UpdateProjectV2($input: UpdateProjectV2Input!) {
+            updateProjectV2(input: $input) {
+                projectV2 {
+                    __typename
+                }
+            }
+        }
+    """
+    )
+
+    project_description = f"A collaborative board for the {target_repo_name} audit"
+
+    # Variables for the mutation
+    update_mutation_variables = {
+        "input": {
+            "projectId": project_id,
+            "public": False,
+            "shortDescription": project_description,
+        }
+    }
+
+    try:
+        # Execute the mutation
+        response = client.execute(
+            update_project_mutation, variable_values=update_mutation_variables
+        )
+
+        # Check for errors
+        if "errors" in response:
+            error_messages = [error["message"] for error in response["errors"]]
+            error_text = "\n".join(error_messages)
+            raise Exception(f"GraphQL errors:\n{error_text}")
+        else:
+            print(f"Project {project_title} has been updated successfully")
+    except Exception as e:
+        raise Exception(f"Error occurred while updating the project board description: {str(e)}")
+
+
+def clone_project(repo: Repository, github_token: str, organization: str, target_repo_name: str, project_template_id: str, project_title: str) -> str:
     """
     Clone a GitHub project from the template
-        token (str): GitHub personal access token
-        org_node_id (str): GitHub Organization node ID (can be retrieved by calling get_organization_node_id)
+        repo (Repository): GitHub repository object
+        github_token (str): GitHub personal access token
+        organization (str): GitHub organization name
+        target_repo_name (str): Name of the repository with which the project will be associated
         project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/7/views/2 => 7 is the ID)
-        project_title (Optional[str]): Name of the new project, if empty 'CLONED PROJECT' will be used.
+        project_title (str): Name of the new project.
 
         Return the cloned project's ID, empty string on failure
     """
-    if not org_name or not project_template_id:
-        return
 
-    if not project_title:
-        project_title = 'CLONED PROJECT'
+    try:
+        repo.edit(has_projects=True)
 
-    # get the organization node id
-    org_node_id = get_organization_node_id(token, org_name)
-    if not org_node_id:
-        print('Failed to get the organization node ID.')
-        return
+        transport = RequestsHTTPTransport(
+            url="https://api.github.com/graphql",
+            headers={"Authorization": f"Bearer {github_token}"},
+            use_json=True,
+        )
+        client = Client(transport=transport, fetch_schema_from_transport=False)
 
-    # get the project node id
-    project_node_id = get_project_node_id(token, org_name, project_template_id)
+        repo_node_id, org_node_id = get_node_ids(client, organization, target_repo_name)
 
-    # clone the project
-    url = "https://api.github.com/graphql"
-    payload = '{"query":"mutation {copyProjectV2(input: {ownerId: \\\"' + org_node_id + '\\\" projectId: \\\"' + project_node_id + '\\\" title: \\\"' + project_title + '\\\"}) {projectV2 {id}}}\","variables":{}}'
-    headers = {
-        'Authorization': f'token {token}',
-    }
+        if not repo_node_id or not org_node_id:
+            raise Exception('Failed to get the repository or organization node ID.')
+        
+        project_node_id = copy_project(client, org_node_id, project_template_id, target_repo_name)
 
-    response = requests.request("POST", url, headers=headers, data=payload)
-    res = response.json()
-    return res.get('data', {}).get('organization', {}).get('projectV2', {}).get('id', '')
+        if not project_node_id:
+            raise Exception('Failed to copy the project.')
+        
+    except Exception as e:
+        raise Exception(f"Error occurred while cloning project: {str(e)}")
+        
+    try:
+        # it doesn't matter if this call fails, we can still use the project as it is only a description update
+        update_project(client, target_repo_name, project_node_id, project_title)
+    except Exception as e:
+        print(f"Error occurred while updating project: {str(e)}")
 
+    try:
+        # it doesn't matter if this call fails, we can still use the project as it is only a linking step
+        link_project_to_repo(client, project_node_id, repo_node_id)
+    except Exception as e:
+        print(f"Error occurred while linking project to repo: {str(e)}")
 
+    return project_node_id
 

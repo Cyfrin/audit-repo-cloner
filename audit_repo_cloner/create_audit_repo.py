@@ -9,7 +9,6 @@ import click
 import subprocess
 import tempfile
 import logging as log
-import yaml
 import re
 from __version__ import __version__, __title__
 
@@ -17,8 +16,6 @@ from constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
-    TRELLO_LABELS,
-    TRELLO_COLUMNS,
 )
 
 log.basicConfig(level=log.INFO)
@@ -140,7 +137,9 @@ def create_audit_repo(
         repo = set_up_ci(repo, subtree_path)
         # create project board optionally
         if project_template_id and project_title:
-            set_up_project_board(token=github_token, org_name=organization, project_template_id=project_template_id, project_title=project_title)
+            set_up_project_board(repo, github_token, organization, target_repo_name, project_template_id, project_title)
+        else: 
+            print("Please set up project board manually.")
 
 
     print("Done!")
@@ -599,9 +598,16 @@ def create_report_branch(repo, commit_hash) -> Repository:
 # IMPORTANT: project creation via REST API is not supported anymore
 # https://stackoverflow.com/questions/73268885/unable-to-create-project-in-repository-or-organisation-using-github-rest-api
 # we use a non-standard way to access GitHub's GraphQL
-def set_up_project_board(token:str, org_name:str, project_template_id:str, project_title:str):
+def set_up_project_board(
+        repo: Repository,
+        github_token: str,
+        organization: str,
+        target_repo_name: str,
+        project_template_id:str,
+        project_title:str
+    ):
     try:
-        clone_project(token, org_name, project_template_id, project_title)
+        clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
         print("Project board has been set up successfully!")
     except Exception as e:
         print(f"Error occurred while setting up project board: {str(e)}")
