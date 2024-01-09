@@ -18,12 +18,12 @@ It will take the following steps:
 **Cyfrin:**
 ```
 
-3. Update labels to label issues based on severity and status
-4. Create an audit tag at the given commit hash (full SHA)
-5. Create branches for each of the auditors participating
-6. Create a branch for the final report
-7. Add the [report-generator-template](https://github.com/Cyfrin/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
-8. Attempt to set up a GitHub project board
+4. Update labels to label issues based on severity and status
+5. Create an audit tag at the given commit hash (full SHA)
+6. Create branches for each of the auditors participating
+7. Create a branch for the final report
+8. Add the [report-generator-template](https://github.com/Cyfrin/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
+9. Attempt to set up a GitHub project board
 
 Note: Changes to `report-generator-template` can be pulled into the generated repo by running:
 ```bash
