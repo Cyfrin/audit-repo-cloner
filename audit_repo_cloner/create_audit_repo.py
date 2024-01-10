@@ -16,6 +16,7 @@ from constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
+    PROJECT_TEMPLATE_ID,
 )
 
 log.basicConfig(level=log.INFO)
@@ -42,7 +43,6 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 @click.option("--auditors", help="Names of the auditors (separated by spaces).", default=os.getenv("ASSIGNED_AUDITORS"))
 @click.option("--github-token", help="Your GitHub developer token to make API calls.", default=os.getenv("GITHUB_ACCESS_TOKEN"))
 @click.option("--organization", help="Your GitHub organization name in which to clone the repo.", default=os.getenv("GITHUB_ORGANIZATION"))
-@click.option("--project-template-id", help="ID of the GitHub project board template.", default=os.getenv("PROJECT_TEMPLATE_ID"))
 @click.option("--project-title", help="Title of the new project board on GitHub.", default=os.getenv("PROJECT_TITLE"))
 def create_audit_repo(
     source_url: str = None,
@@ -51,7 +51,6 @@ def create_audit_repo(
     auditors: str = None,
     github_token: str = None,
     organization: str = None,
-    project_template_id: str = None,
     project_title: str = None
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
@@ -62,7 +61,6 @@ def create_audit_repo(
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
         github_token (str): The GitHub developer token to make API calls.
         organization (str): The GitHub organization to create the audit repository in.
-        project_template_id (str): The ID of the GitHub project board that can be extractable from the URL. e.g. https://github.com/orgs/Cyfrin/projects/5 -> 5 is the ID
         project_title (str): The title of the GitHub project board.
 
     Returns:
@@ -76,7 +74,6 @@ def create_audit_repo(
         auditors,
         github_token,
         organization,
-        project_template_id,
         project_title
     ) = prompt_for_details(
         source_url,
@@ -85,7 +82,6 @@ def create_audit_repo(
         auditors,
         github_token,
         organization,
-        project_template_id,
         project_title
     )
     if not source_url or not commit_hash or not auditors or not organization:
@@ -103,6 +99,7 @@ def create_audit_repo(
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
+    project_template_id = PROJECT_TEMPLATE_ID
 
     # if target_repo_name is not provided, attempt to use the source repo name
     if not target_repo_name:
@@ -253,7 +250,6 @@ def prompt_for_details(
     auditors: str,
     github_token: str,
     organization: str,
-    project_template_id: str,
     project_title: str
 ):
     while True:
@@ -288,21 +284,16 @@ def prompt_for_details(
                 f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: "
             )
             prompt_counter += 1
-        if not project_template_id:
-            project_template_id = input(
-                f"\n{prompt_counter}) Enter the ID of the GitHub project board template (e.g. https://github.com/orgs/Cyfrin/projects/5/views/1 -> 5): "
-            )
-            prompt_counter += 1
         if not project_title:
             project_title = input(
                 f"\n{prompt_counter}) Enter the title of the GitHub project board: "
             )
             prompt_counter += 1
 
-        if source_url and commit_hash and auditors and github_token and organization and project_template_id and project_title:
+        if source_url and commit_hash and auditors and github_token and organization and project_title:
             break
         print("Please fill in all the details.")
-    return source_url, target_repo_name, commit_hash, auditors, github_token, organization, project_template_id, project_title
+    return source_url, target_repo_name, commit_hash, auditors, github_token, organization, project_title
 
 
 def try_clone_repo(
