@@ -3,13 +3,18 @@ from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
 
-def get_node_ids(client: Client, organization: str, target_repo_name: str) -> tuple[str, str]:
+def get_node_ids(client: Client, organization: str, target_repo_name: str, project_template_id: int) -> tuple[str, str, str]:
     query = gql(
         """
-    query GetNodeIds($owner: String!, $repo_name: String!) {
+    query GetNodeIds($owner: String!, $repo_name: String!, $project_number: Int!) {
         repository(owner: $owner, name: $repo_name) {
             id
             owner {
+                id
+            }
+        }
+        organization(login: $owner) {
+            projectV2(number: $project_number) {
                 id
             }
         }
@@ -17,15 +22,17 @@ def get_node_ids(client: Client, organization: str, target_repo_name: str) -> tu
     """
     )
 
-    query_variables = {"owner": organization, "repo_name": target_repo_name}
+    query_variables = {"owner": organization, "repo_name": target_repo_name, "project_number": project_template_id}
 
     try:
         response = client.execute(query, variable_values=query_variables)
         repo_node_id = response["repository"]["id"]
         org_node_id = response["repository"]["owner"]["id"]
+        project_node_id = response["organization"]["projectV2"]["id"]
         print(f"Node ID of the repository is: {repo_node_id}")
         print(f"Node ID of the owner is: {org_node_id}")
-        return repo_node_id, org_node_id
+        print(f"Node ID of the project is: {project_node_id}")
+        return repo_node_id, org_node_id, project_node_id
     except Exception as e:
         raise Exception(f"Error occurred while getting owner/repo node ids: {str(e)}")
 
@@ -62,7 +69,7 @@ def copy_project(client: Client, owner_node_id: str, project_template_id: str, p
         project_id = response["copyProjectV2"]["projectV2"]["id"]
         project_title = response["copyProjectV2"]["projectV2"]["title"]
         print(
-            f"Project {project_title} has been created successfully with id {project_id}"
+            f'Project "{project_title}" has been created successfully with id {project_id}'
         )
         return project_id
     except Exception as e:
@@ -74,7 +81,9 @@ def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> 
         """
         mutation LinkProjectV2ToRepository($input: LinkProjectV2ToRepositoryInput!) {
             linkProjectV2ToRepository(input: $input) {
-                repository
+                repository {
+                    __typename
+                }
             }
         }
     """
@@ -166,12 +175,12 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
         )
         client = Client(transport=transport, fetch_schema_from_transport=False)
 
-        repo_node_id, org_node_id = get_node_ids(client, organization, target_repo_name)
+        repo_node_id, org_node_id, project_template_id = get_node_ids(client, organization, target_repo_name, int(project_template_id))
 
         if not repo_node_id or not org_node_id:
             raise Exception('Failed to get the repository or organization node ID.')
         
-        project_node_id = copy_project(client, org_node_id, project_template_id, target_repo_name)
+        project_node_id = copy_project(client, org_node_id, project_template_id, project_title)
 
         if not project_node_id:
             raise Exception('Failed to copy the project.')

@@ -132,11 +132,7 @@ def create_audit_repo(
             commit_hash,
         )
         repo = set_up_ci(repo, subtree_path)
-        # create project board optionally
-        if project_template_id and project_title:
-            set_up_project_board(repo, github_token, organization, target_repo_name, project_template_id, project_title)
-        else: 
-            print("Please set up project board manually.")
+        set_up_project_board(repo, github_token, organization, target_repo_name, project_template_id, project_title)
 
 
     print("Done!")
@@ -375,6 +371,7 @@ def create_and_clone_repo(
         repo = github_org.create_repo(target_repo_name, private=True)
     except GithubException as e:
         log.error(f"Error creating remote repository: {e}")
+        exit()
 
     try:
         print(f"Cloning {source_repo_name}...")
@@ -594,9 +591,11 @@ def set_up_project_board(
         github_token: str,
         organization: str,
         target_repo_name: str,
-        project_template_id:str,
-        project_title:str
+        project_template_id: str,
+        project_title: str = "DEFAULT PROJECT"
     ):
+    if not project_title:
+        project_title = "DEFAULT PROJECT"
     try:
         clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
         print("Project board has been set up successfully!")
