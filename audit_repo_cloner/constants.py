@@ -43,6 +43,9 @@ SEVERITY_DATA = [
     {"name": "Report Status: Resolved", "color": "0E8A16"},
     {"name": "Report Status: Closed", "color": "bfdadc"},
 ]
+
+PROJECT_TEMPLATE_ID = "5"
+
 TRELLO_LABELS = [
     "Archived",
     "Needs Discussion",
@@ -50,4 +53,5 @@ TRELLO_LABELS = [
     "Co-Validated",
     "Report Ready",
 ]
+
 TRELLO_COLUMNS = ["Archive", "Ideas", "Findings", "Peer Reviewed", "Report"]

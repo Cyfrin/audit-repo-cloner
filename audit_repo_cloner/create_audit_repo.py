@@ -3,21 +3,20 @@ from datetime import date
 from typing import List, Optional, Tuple
 from github import Github, GithubException, Repository, Organization
 from dotenv import load_dotenv
-from .create_action import create_action
+from create_action import create_action
+from github_project_utils import clone_project
 import click
 import subprocess
 import tempfile
 import logging as log
-import yaml
 import re
-from .__version__ import __version__, __title__
+from __version__ import __version__, __title__
 
-from .constants import (
+from constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
-    TRELLO_LABELS,
-    TRELLO_COLUMNS,
+    PROJECT_TEMPLATE_ID,
 )
 
 log.basicConfig(level=log.INFO)
@@ -38,24 +37,23 @@ GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
     version=__version__,
     prog_name=__title__,
 )
-@click.option("--config", type=click.Path(exists=True), help="Path to YAML config file")
-@click.option("--source-url", help="Source repository URL.")
-@click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).")
-@click.option("--commit-hash", help="Audit commit hash.")
-@click.option("--auditors", help="Names of the auditors (separated by spaces).")
-@click.option("--github-token",help="Your GitHub developer token to make API calls.")
-@click.option("--organization",help="Your GitHub organization name in which to clone the repo.")
+@click.option("--source-url", help="Source repository URL.", default=os.getenv("SOURCE_REPO_URL"))
+@click.option("--target-repo-name", help="Target repository name (leave blank to use source repo name).", default=os.getenv("TARGET_REPO_NAME"))
+@click.option("--commit-hash", help="Audit commit hash.", default=os.getenv("COMMIT_HASH"))
+@click.option("--auditors", help="Names of the auditors (separated by spaces).", default=os.getenv("ASSIGNED_AUDITORS"))
+@click.option("--github-token", help="Your GitHub developer token to make API calls.", default=os.getenv("GITHUB_ACCESS_TOKEN"))
+@click.option("--organization", help="Your GitHub organization name in which to clone the repo.", default=os.getenv("GITHUB_ORGANIZATION"))
+@click.option("--project-title", help="Title of the new project board on GitHub.", default=os.getenv("PROJECT_TITLE"))
 def create_audit_repo(
-    config: str = "",
     source_url: str = None,
     target_repo_name: str = None,
     commit_hash: str = None,
     auditors: str = None,
-    github_token: str = os.getenv("ACCESS_TOKEN"),
-    organization: str =os.getenv("GITHUB_ORGANIZATION"),
+    github_token: str = None,
+    organization: str = None,
+    project_title: str = None
 ):
     """This function clones a target repository and prepares it for a Cyfrin audit using the provided arguments.
-    If config file is not provided, the user will be prompted for any parameter values not provided.
 
     Args:
         source_url (str): The URL of the source repository to be cloned and prepared for the Cyfrin audit.
@@ -63,46 +61,32 @@ def create_audit_repo(
         auditors (str): A space-separated list of auditor names who will be assigned to the audit.
         github_token (str): The GitHub developer token to make API calls.
         organization (str): The GitHub organization to create the audit repository in.
+        project_title (str): The title of the GitHub project board.
 
     Returns:
         None
     """
-    if config:
-        (
-            source_url,
-            target_repo_name,
-            commit_hash,
-            auditors,
-            github_token,
-            organization,
-        ) = load_config(
-            config,
-            source_url,
-            target_repo_name,
-            commit_hash,
-            auditors,
-            github_token,
-            organization,
-        )
-    else:
-        (
-            source_url,
-            target_repo_name,
-            commit_hash,
-            auditors,
-            github_token,
-            organization,
-        ) = prompt_for_details(
-            source_url, 
-            target_repo_name, 
-            commit_hash, 
-            auditors, 
-            github_token,
-            organization
-        )
+
+    (
+        source_url,
+        target_repo_name,
+        commit_hash,
+        auditors,
+        github_token,
+        organization,
+        project_title
+    ) = prompt_for_details(
+        source_url,
+        target_repo_name,
+        commit_hash,
+        auditors,
+        github_token,
+        organization,
+        project_title
+    )
     if not source_url or not commit_hash or not auditors or not organization:
         raise click.UsageError(
-            "Source URL, commit hash, organization, and auditors must be provided either through config, or as options."
+            "Source URL, commit hash, organization, and auditors must be provided either through environment variables, or as options."
         )
     if not github_token:
         raise click.UsageError(
@@ -115,6 +99,7 @@ def create_audit_repo(
     source_repo_name = url_parts[-1]
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
+    project_template_id = PROJECT_TEMPLATE_ID
 
     # if target_repo_name is not provided, attempt to use the source repo name
     if not target_repo_name:
@@ -147,7 +132,8 @@ def create_audit_repo(
             commit_hash,
         )
         repo = set_up_ci(repo, subtree_path)
-        repo = set_up_project_board(repo, source_username, target_repo_name)
+        set_up_project_board(repo, github_token, organization, target_repo_name, project_template_id, project_title)
+
 
     print("Done!")
 
@@ -253,79 +239,6 @@ def set_up_ci(repo, subtree_path: str):
     return repo
 
 
-def set_up_project_board(repo, source_username: str, target_repo_name: str):
-    try:
-        repo.edit(has_projects=True)
-        project = repo.create_project(
-            f"{source_username}/{target_repo_name}",
-            body=f"A collaborative board for the {source_username}/{target_repo_name} audit",
-        )
-        columns = [project.create_column(name) for name in TRELLO_COLUMNS]
-        project.create_custom_field(
-            name="Status", type="dropdown", possible_values=TRELLO_LABELS
-        )
-        project.create_custom_field(name="PoC", type="boolean")
-
-        # Define the column-to-label mapping
-        column_to_label_mapping = {
-            column: label for column, label in zip(columns, TRELLO_LABELS)
-        }
-
-        # Define the workflow action
-        def handle_card_move(event):
-            card = event.project_card
-            column = card.column
-            label = column_to_label_mapping.get(column)
-            if label:
-                issue = card.get_content()
-                issue.add_to_labels(label)
-
-        # Register the workflow
-        project.add_to_event_handlers("project_card_move", handle_card_move)
-        print("Project board has been set up successfully!")
-    except Exception as e:
-        print(f"Error occurred while setting up project board: {str(e)}")
-        print("Please set up project board manually.")
-
-    return repo
-
-
-def load_config(
-    config: str,
-    source_url: Optional[str] = None,
-    target_repo_name: Optional[str] = None,
-    auditors: Optional[str] = None,
-    github_token: Optional[str] = None,
-    organization: Optional[str] = None,
-) -> Tuple[str, str, str, str]:
-    """Loads the configuration file and returns the values.
-
-    Args:
-        config (str): The path to the configuration file.
-        source_url (Optional[str], optional): The URL you want to download. Defaults to None.
-        target_repo_name (Optional[str], optional): The name of the target repository. Defaults to None.
-        auditors (Optional[str], optional): The list of auditors separated by spaces. Defaults to None.
-        github_token (Optional[str], optional): The GitHub token to use. Defaults to None.
-        organization (Optional[str], optional): The organization to make the github repo. Defaults to None.
-
-    Returns:
-        Tuple[str, str, str, str]: The source URL, auditors, GitHub token, and organization.
-    """
-    with open(config, "r") as f:
-        config_data = yaml.safe_load(f)
-        if not source_url:
-            source_url = (config_data.get("source_url", source_url))
-        if not target_repo_name:
-            target_repo_name = (config_data.get("target_repo_name", target_repo_name))
-        if not auditors:
-            auditors = (config_data.get("auditors", auditors))
-        if not github_token:
-            github_token = (config_data.get("github_token", github_token))
-        if not organization:
-            organization = (config_data.get("organization", organization))
-    return source_url, target_repo_name, auditors, github_token, organization
-
-
 def prompt_for_details(
     source_url: str,
     target_repo_name: str,
@@ -333,6 +246,7 @@ def prompt_for_details(
     auditors: str,
     github_token: str,
     organization: str,
+    project_title: str
 ):
     while True:
         prompt_counter = 1
@@ -358,19 +272,24 @@ def prompt_for_details(
             )
         if not github_token:
             github_token = input(
-                f"\n{prompt_counter}) Enter you Github token: "
-            )            
+                f"\n{prompt_counter}) Enter your Github token: "
+            )
             prompt_counter += 1
         if not organization:
             organization = input(
                 f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: "
             )
             prompt_counter += 1
+        if not project_title:
+            project_title = input(
+                f"\n{prompt_counter}) Enter the title of the GitHub project board: "
+            )
+            prompt_counter += 1
 
-        if source_url and commit_hash and auditors and github_token and organization:
+        if source_url and commit_hash and auditors and github_token and organization and project_title:
             break
         print("Please fill in all the details.")
-    return source_url, target_repo_name, commit_hash, auditors, github_token, organization
+    return source_url, target_repo_name, commit_hash, auditors, github_token, organization, project_title
 
 
 def try_clone_repo(
@@ -452,6 +371,7 @@ def create_and_clone_repo(
         repo = github_org.create_repo(target_repo_name, private=True)
     except GithubException as e:
         log.error(f"Error creating remote repository: {e}")
+        exit()
 
     try:
         print(f"Cloning {source_repo_name}...")
@@ -663,6 +583,26 @@ def create_report_branch(repo, commit_hash) -> Repository:
             exit()
     return repo
 
+# IMPORTANT: project creation via REST API is not supported anymore
+# https://stackoverflow.com/questions/73268885/unable-to-create-project-in-repository-or-organisation-using-github-rest-api
+# we use a non-standard way to access GitHub's GraphQL
+def set_up_project_board(
+        repo: Repository,
+        github_token: str,
+        organization: str,
+        target_repo_name: str,
+        project_template_id: str,
+        project_title: str = "DEFAULT PROJECT"
+    ):
+    if not project_title:
+        project_title = "DEFAULT PROJECT"
+    try:
+        clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
+        print("Project board has been set up successfully!")
+    except Exception as e:
+        print(f"Error occurred while setting up project board: {str(e)}")
+        print("Please set up project board manually.")
+    return
 
 if __name__ == "__main__":
     create_audit_repo()
