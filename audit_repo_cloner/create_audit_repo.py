@@ -272,7 +272,7 @@ def prompt_for_details(
             )
         if not github_token:
             github_token = input(
-                f"\n{prompt_counter}) Enter you Github token: "
+                f"\n{prompt_counter}) Enter your Github token: "
             )
             prompt_counter += 1
         if not organization:

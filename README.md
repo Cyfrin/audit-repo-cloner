@@ -83,7 +83,7 @@ To use this, you'll need a [github personal access token](https://docs.github.co
 You can then set it as an environment variable or input it via the CLI:
 
 ```bash
-export ACCESS_TOKEN=xxxxxx
+export GITHUB_ACCESS_TOKEN=xxxxxx
 ```
 
 Note: this access token is only used to create the repo initially. To allow the GitHub Action to run the report generator (fetching issues) in CI, be sure to set appropriate permissions for the global [`GITHUB_TOKEN` secret](https://docs.github.com/en/actions/security-guides/automatic-token-authentication).
@@ -126,7 +126,7 @@ Enter: `https://github.com/Cyfrin/foundry-full-course-f23`
 Enter: `""`
 
 ```
-3) Audit commit hash: 
+3) Audit commit hash (be sure to copy the full SHA): 
 ```
 Enter: `25d62b685857f5c1906675a3876d7d7773a8b3bd`
 
@@ -141,4 +141,17 @@ Enter: `"tricky-p blue-frog-man giiioooooooo"`
 
 Enter: `<YOUR_ORG_NAME>`
 
+```
+6) Enter the title of the GitHub project board: 
+```
+
+Enter: `Cyfrin Audit`
+
 And you'll get a loooong output, but, hopefully, you'll have a repo ready for audit!
+
+### Project Board Configuration
+To create and link a GitHub project board, you'll first need to manually create a template project board in your organization. This only needs to be done once and can be used for all subsequent runs of this tool. The resource identifier for the template project board will be the number at the end of the URL. For example, if the URL is `https://github.com/orgs/Cyfrin/projects/5/views/1` then the resource identifier is `5`. This identifier will be used to get the global node ID for the project board, which is used to link the project board to the audit repository. The ID of Cyfrin's template project board is `5` and is set as a constant in `constants.py`:
+```python
+PROJECT_TEMPLATE_ID = 5
+```
+If forking this repo or updating the template project board, change this value to the ID of your desired template project board accordingly.

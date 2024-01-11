@@ -159,7 +159,7 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
         github_token (str): GitHub personal access token
         organization (str): GitHub organization name
         target_repo_name (str): Name of the repository with which the project will be associated
-        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/7/views/2 => 7 is the ID)
+        project_template_id (str): ID of the project template, can be extracted from the link (e.g. https://github.com/orgs/Cyfrin/projects/5/views/1 => 5 is the ID)
         project_title (str): Name of the new project.
 
         Return the cloned project's ID, empty string on failure
