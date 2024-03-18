@@ -94,6 +94,7 @@ def create_audit_repo(
         )
 
     source_url = source_url.replace(".git", "")  # remove .git from the url
+    source_url = source_url.rstrip("/")  # remove any trailing forward slashes
     url_parts = source_url.split("/")
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
