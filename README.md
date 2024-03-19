@@ -1,6 +1,6 @@
 # Audit Repository Cloner
 
-This repository contains a Python package to clone a repo and automatically prepare it for [Cyfrin](https://www.cyfrin.io/) audit report generation. 
+This repository contains a Python package to clone a repo and automatically prepare it for [Cyfrin](https://www.cyfrin.io/) audit report generation.
 
 # What it does
 
@@ -14,7 +14,7 @@ It will take the following steps:
 **Impact:**
 **Proof of Concept:**
 **Recommended Mitigation:**
-**[Project]:** 
+**[Project]:**
 **Cyfrin:**
 ```
 
@@ -44,9 +44,9 @@ git subtree pull --prefix cyfrin-report/report-generator-template https://github
 
 ## Installation
 
-To install from source: 
+To install from source:
 
-```bash 
+```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
@@ -78,7 +78,7 @@ audit_repo_cloner, version 0.2.2
 
 ## Getting a GitHub token
 
-To use this, you'll need a [github personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token). Please view the docs to set one up. 
+To use this, you'll need a [github personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token). Please view the docs to set one up.
 
 You can then set it as an environment variable or input it via the CLI:
 
@@ -113,10 +113,10 @@ audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcon
 ```
 
 ```
-$ audit_repo_cloner 
+$ audit_repo_cloner
 "Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:
 
-1) Source repo url: 
+1) Source repo url:
 ```
 Enter: `https://github.com/Cyfrin/foundry-full-course-f23`
 
@@ -126,7 +126,7 @@ Enter: `https://github.com/Cyfrin/foundry-full-course-f23`
 Enter: `""`
 
 ```
-3) Audit commit hash (be sure to copy the full SHA): 
+3) Audit commit hash (be sure to copy the full SHA):
 ```
 Enter: `25d62b685857f5c1906675a3876d7d7773a8b3bd`
 
@@ -142,7 +142,7 @@ Enter: `"tricky-p blue-frog-man giiioooooooo"`
 Enter: `<YOUR_ORG_NAME>`
 
 ```
-6) Enter the title of the GitHub project board: 
+6) Enter the title of the GitHub project board:
 ```
 
 Enter: `Cyfrin Audit`
@@ -155,3 +155,11 @@ To create and link a GitHub project board, you'll first need to manually create 
 PROJECT_TEMPLATE_ID = 5
 ```
 If forking this repo or updating the template project board, change this value to the ID of your desired template project board accordingly.
+
+
+### Name for the cloned repo and the project board
+It is recommended using the following naming convention for the cloned repo and the project board:
+- Cloned Repo: `audit-YYYY-MM-<protocol>` (e.g. `audit-2024-03-awesomedefi`)
+- Project Board: `[Audit] <Protocol> (YYYY-MM)` (e.g. `[Audit] Awesome Defi Core (2024-03)`)
+
+These can be set as environment variables or passed as CLI arguments. If not set, the default values are used.
