@@ -29,9 +29,9 @@ def get_node_ids(client: Client, organization: str, target_repo_name: str, proje
         repo_node_id = response["repository"]["id"]
         org_node_id = response["repository"]["owner"]["id"]
         project_node_id = response["organization"]["projectV2"]["id"]
-        print(f"Node ID of the repository is: {repo_node_id}")
-        print(f"Node ID of the owner is: {org_node_id}")
-        print(f"Node ID of the project is: {project_node_id}")
+        # print(f"Node ID of the repository is: {repo_node_id}")
+        # print(f"Node ID of the owner is: {org_node_id}")
+        # print(f"Node ID of the project is: {project_node_id}")
         return repo_node_id, org_node_id, project_node_id
     except Exception as e:
         raise Exception(f"Error occurred while getting owner/repo node ids: {str(e)}")
@@ -74,7 +74,7 @@ def copy_project(client: Client, owner_node_id: str, project_template_id: str, p
         return project_id
     except Exception as e:
         raise Exception(f"Error occurred while copying the template project: {str(e)}")
-    
+
 def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> str:
     # GraphQL Mutation for linking a project to a repo
     link_project_mutation = gql(
@@ -179,15 +179,15 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
 
         if not repo_node_id or not org_node_id:
             raise Exception('Failed to get the repository or organization node ID.')
-        
+
         project_node_id = copy_project(client, org_node_id, project_template_id, project_title)
 
         if not project_node_id:
             raise Exception('Failed to copy the project.')
-        
+
     except Exception as e:
         raise Exception(f"Error occurred while cloning project: {str(e)}")
-        
+
     try:
         # it doesn't matter if this call fails, we can still use the project as it is only a description update
         update_project(client, target_repo_name, project_node_id, project_title)
