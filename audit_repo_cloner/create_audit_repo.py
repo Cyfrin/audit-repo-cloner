@@ -21,7 +21,7 @@ from constants import (
 
 log.basicConfig(level=log.INFO)
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Globals are shit. We should refactor again in the future...
 REPORT_BRANCH_NAME = "report"
