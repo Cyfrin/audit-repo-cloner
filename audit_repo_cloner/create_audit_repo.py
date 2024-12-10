@@ -1,3 +1,4 @@
+import shutil
 import os
 from datetime import date
 from typing import List, Optional, Tuple
@@ -165,11 +166,15 @@ def add_subtree(
             f"git -C {repo_path} subtree add --prefix {subtree_path} {SUBTREE_URL} {MAIN_BRANCH_NAME} --squash",
             shell=True, check=False
         )
+
+        # Move workflow file to the correct location
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
-        subprocess.run(
-            f"mv {repo_path}/{subtree_path}/.github/workflows/main.yml {repo_path}/.github/workflows/main.yml",
-            shell=True, check=False
-        )
+        try:
+            source = os.path.join(repo_path, subtree_path, '.github', 'workflows', 'main.yml')
+            destination = os.path.join(repo_path, '.github', 'workflows', 'main.yml')
+            shutil.move(source, destination)
+        except Exception as e:
+            print(f"Error moving file: {e}")
 
         with open(
             f"{repo_path}/{subtree_path}/source/summary_information.conf", "r"
