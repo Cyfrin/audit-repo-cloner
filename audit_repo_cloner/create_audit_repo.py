@@ -111,7 +111,7 @@ def create_audit_repo(
                 log.warning(f"Skipping repository with missing sourceUrl or commitHash: {repo_config}")
                 continue
 
-            clone_source_repo_as_submodule(
+            clone_source_repo_as_subtree(
                 repo,
                 temp_dir,
                 github_token,
@@ -195,19 +195,13 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
 Audit repository containing multiple projects.
 
 ## Getting Started
-Clone the repository with recursive submodules:
+Clone the repository:
 
 ```bash
-git clone --recurse-submodules [repository-url]
+git clone [repository-url]
 ```
 
-After cloning this repository, run the following command to populate all submodules:
-
-```bash
-git submodule update --init --recursive
-```
-
-This will download the source code for all audit target repositories.
+The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
 """)
 
     # Configure git
@@ -260,7 +254,7 @@ This will download the source code for all audit target repositories.
             subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
 
 
-def clone_source_repo_as_submodule(
+def clone_source_repo_as_subtree(
     repo: Repository,
     temp_dir: str,
     github_token: str,
@@ -268,7 +262,7 @@ def clone_source_repo_as_submodule(
     commit_hash: str,
     sub_folder: str
 ):
-    """Clone a source repository as a git submodule at the specified subfolder"""
+    """Clone a source repository and merge it into the target repo using git subtree"""
     repo_path = os.path.join(temp_dir, repo.name)
 
     # Clean source URL
@@ -285,114 +279,41 @@ def clone_source_repo_as_submodule(
     source_username = url_parts[-2]
     source_repo_name = url_parts[-1]
 
-    # Get the target path for the submodule
-    submodule_target = sub_folder or source_repo_name
-    submodule_path = os.path.join(repo_path, submodule_target)
+    # Get the target path for the subtree
+    subtree_target = sub_folder or source_repo_name
+    subtree_path = os.path.join(repo_path, subtree_target)
 
     # Always forcefully remove the directory if it exists
-    if os.path.exists(submodule_path):
-        log.info(f"Removing existing directory {submodule_path}")
-
-        # First try to clean up if it's a git repo
-        try:
-            # Try to deinit the submodule first
-            subprocess.run(["git", "submodule", "deinit", "-f", "--", submodule_target],
-                          cwd=repo_path, check=False, capture_output=True)
-
-            # Remove from .gitmodules
-            gitmodules_file = os.path.join(repo_path, ".gitmodules")
-            if os.path.exists(gitmodules_file):
-                subprocess.run(["git", "config", "-f", ".gitmodules", "--remove-section", f"submodule.{submodule_target}"],
-                              cwd=repo_path, check=False, capture_output=True)
-
-            # Remove the submodule directory from git
-            subprocess.run(["git", "rm", "-f", "--cached", submodule_target],
-                          cwd=repo_path, check=False, capture_output=True)
-
-            # Remove the git submodule directory
-            git_modules_dir = os.path.join(repo_path, ".git", "modules", submodule_target)
-            if os.path.exists(git_modules_dir):
-                if os.name == 'nt':  # Windows
-                    subprocess.run(f'rmdir /S /Q "{git_modules_dir}"', shell=True, check=False)
-                else:  # Unix-like
-                    subprocess.run(f'rm -rf "{git_modules_dir}"', shell=True, check=False)
-        except Exception as e:
-            log.warning(f"Error cleaning up git submodule: {e}, continuing with force removal")
-
-        # Force removal using system commands
+    if os.path.exists(subtree_path):
+        log.info(f"Removing existing directory {subtree_path}")
         try:
             if os.name == 'nt':  # Windows
-                subprocess.run(f'rmdir /S /Q "{submodule_path}"', shell=True, check=False)
+                subprocess.run(f'rmdir /S /Q "{subtree_path}"', shell=True, check=False)
             else:  # Unix-like
-                subprocess.run(f'rm -rf "{submodule_path}"', shell=True, check=False)
+                subprocess.run(f'rm -rf "{subtree_path}"', shell=True, check=False)
         except Exception as e:
-            log.error(f"System command removal failed: {e}")
-
-        # Check if directory still exists
-        if os.path.exists(submodule_path):
-            log.error(f"Directory {submodule_path} still exists after system deletion attempts")
-            raise Exception(f"Cannot add submodule: directory {submodule_target} exists and could not be removed")
+            log.error(f"Error removing directory: {e}")
+            raise Exception(f"Cannot add subtree: directory {subtree_target} exists and could not be removed")
 
     # Create subfolder if needed for parent directories
     if sub_folder:
-        parent_dir = os.path.dirname(submodule_path)
+        parent_dir = os.path.dirname(subtree_path)
         os.makedirs(parent_dir, exist_ok=True)
 
-    print(f"Adding {source_repo_name} as submodule in {sub_folder or 'root directory'}...")
+    print(f"Adding {source_repo_name} as subtree in {sub_folder or 'root directory'}...")
 
     try:
-        # Add as submodule with authentication
-        process = subprocess.run(
-            [
-                "git",
-                "submodule",
-                "add",
-                "-b", MAIN_BRANCH_NAME,
-                authenticated_url,
-                submodule_target
-            ],
-            cwd=repo_path,
+        # Add the subtree to the repo
+        subtree_result = subprocess.run(
+            f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash} --squash",
+            shell=True,
             check=False,
             capture_output=True,
             text=True
         )
 
-        if process.returncode != 0:
-            # If submodule add fails, try without specifying branch
-            log.warning(f"Failed to add submodule with branch specification: {process.stderr}")
-            log.info("Trying to add submodule without branch specification...")
-
-            process = subprocess.run(
-                [
-                    "git",
-                    "submodule",
-                    "add",
-                    authenticated_url,
-                    submodule_target
-                ],
-                cwd=repo_path,
-                check=False,
-                capture_output=True,
-                text=True
-            )
-
-            if process.returncode != 0:
-                raise Exception(f"Failed to add submodule: {process.stderr}")
-
-        # CD to the submodule directory
-        submodule_path = os.path.join(repo_path, submodule_target)
-
-        # Checkout the specific commit hash
-        checkout_process = subprocess.run(
-            ["git", "checkout", commit_hash],
-            cwd=submodule_path,
-            check=False,
-            capture_output=True,
-            text=True
-        )
-
-        if checkout_process.returncode != 0:
-            raise Exception(f"Failed to checkout commit {commit_hash}: {checkout_process.stderr}")
+        if subtree_result.returncode != 0:
+            raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
@@ -428,7 +349,7 @@ def clone_source_repo_as_submodule(
             log.error(f"Error creating tag {tag_name}: {e}")
 
     except Exception as e:
-        log.error(f"Error adding submodule for {source_repo_name}: {e}")
+        log.error(f"Error adding subtree for {source_repo_name}: {e}")
         log.warning("Continuing with the next repository...")
 
 
