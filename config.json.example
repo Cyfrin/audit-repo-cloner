@@ -1,0 +1,17 @@
+{
+  "targetRepoName": "my-audit-project",
+  "projectTitle": "My Audit Project",
+  "auditors": "auditor1 auditor2 auditor3",
+  "repositories": [
+    {
+      "sourceUrl": "https://github.com/username/repo1",
+      "commitHash": "abcdef1234567890abcdef1234567890abcdef12",
+      "subFolder": "protocol"
+    },
+    {
+      "sourceUrl": "https://github.com/username/repo2",
+      "commitHash": "fedcba0987654321fedcba0987654321fedcba09",
+      "subFolder": "frontend"
+    }
+  ]
+}
