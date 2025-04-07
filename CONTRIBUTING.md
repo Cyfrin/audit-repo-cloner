@@ -1,44 +1,29 @@
-To get started contributing to this project, you'll first need to set up your development environment.
+# Development Setup
 
-```
-git clone https://github.com/ChainAccelOrg/audit-repo-cloner.git
+1. Clone and set up the repository:
+```bash
+git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-We set up a virtual environment so that packages you install get installed to an isolated location (the `venv` folder we just created). If you want to exit this virtual environment, you can run `deactivate`.
-
-Then, install the development dependencies.
-
-```
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
-```
-
-### Optional
-
-You can also install the package in editable mode.
-
-```
 pip install -e .
 ```
 
-The `pip install -e .` command installs our package in "editable" mode. This means that any changes you make to the code will be reflected in the package you import in your own code.
+# Code Quality
 
-This would be if you want to run make changes and test them out on your own code in another project.
+This project uses pre-commit to ensure code quality. After installing the requirements:
 
-# Pre-commit
-
-This project uses pre-commit to ensure code quality. After installing the requirements, you can set up pre-commit with:
-
+1. Install pre-commit hooks:
 ```bash
 pre-commit install
 ```
 
-This will install the git hooks that run the linters and formatters before each commit.
-
-To run pre-commit on all files (recommended for initial setup):
-
+2. Run pre-commit on all files (recommended for initial setup):
 ```bash
 pre-commit run --all-files
 ```
@@ -47,40 +32,20 @@ Note: By default, `pre-commit run` without `--all-files` only checks staged file
 1. Stage your files with `git add .` before running pre-commit, or
 2. Use `pre-commit run --all-files` to check all files regardless of staging status
 
-# Tests
+# Making Changes
 
-## Unit Tests
-
+1. Create a new branch for your changes:
 ```bash
-pytest
+git checkout -b your-feature-branch
 ```
 
-## Integration Tests
-
-TODO
-
-## All tests
-
-TODO
-
-# Upload to PyPI (For most contributors)
-
-Once the package is ready, do the following:
-
-1. Update the `__version__` in `__version__.py`
-2. Cut a release in the GitHub UI with the same version as what's in `__version__.py`
-
-The github actions should then automatically push it to PyPI.
-
-# Uploading to PyPI (Manual)
-
-_For maintainers only. You can view the [docs](https://packaging.python.org/en/latest/tutorials/packaging-projects/#generating-distribution-archives) to learn more._
-
-_Note: `setup.py sdist` is deprecated. Use `python3 -m build` instead._
-
-```
-python3 -m build
-python3 -m twine upload dist/*
+2. Make your changes and commit them:
+```bash
+git add .
+git commit -m "Description of your changes"
 ```
 
-Right now, we have our GitHub actions setup so that every release we push we automatically upload to PyPI.
+3. Push your changes and create a pull request:
+```bash
+git push origin your-feature-branch
+```
