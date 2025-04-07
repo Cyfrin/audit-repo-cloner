@@ -1,23 +1,21 @@
-import shutil
-import os
 import json
-from datetime import date
-from typing import List
-from github import Github, GithubException, Repository
-from audit_repo_cloner.create_action import create_action
-from audit_repo_cloner.github_project_utils import clone_project
-import click
+import logging as log
+import os
+import re
+import shutil
 import subprocess
 import tempfile
-import logging as log
-import re
-from audit_repo_cloner.__version__ import __version__, __title__
-from audit_repo_cloner.constants import (
-    ISSUE_TEMPLATE,
-    DEFAULT_LABELS,
-    SEVERITY_DATA,
-    PROJECT_TEMPLATE_ID,
-)
+from datetime import date
+from typing import List
+
+import click
+from dotenv import load_dotenv
+from github import Github, GithubException, Repository
+
+from audit_repo_cloner.__version__ import __title__, __version__
+from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
+from audit_repo_cloner.create_action import create_action
+from audit_repo_cloner.github_project_utils import clone_project
 
 # Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
@@ -107,13 +105,11 @@ def create_audit_repo(
         repo = create_report_branch(repo, repo.get_commits()[0].sha)
         repo = add_subtree(
             repo,
-            "",  # Not needed for multiple repos
             target_repo_name,
-            "",  # Not needed for multiple repos
             organization,
             temp_dir,
             subtree_path,
-            repo.get_commits()[0].sha,
+            repositories,
             github_token,
         )
         repo = set_up_ci(repo, subtree_path)
@@ -174,17 +170,14 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
         f.write(
             f"""# {target_repo_name}
 
-Audit repository containing multiple projects.
-
 ## Getting Started
 Clone the repository:
 
 ```bash
 git clone [repository-url]
 ```
-
 The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
-"""
+            """
         )
 
     # Configure git
@@ -258,7 +251,7 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
     try:
         # Add the subtree to the repo
-        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash} --squash", shell=True, check=False, capture_output=True, text=True)
+        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash}", shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
@@ -293,22 +286,21 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
 def prompt_for_token_and_org(github_token: str, organization: str):
     """Prompt for GitHub token and organization if not provided"""
+    load_dotenv(override=True)
     if not github_token:
-        github_token = input("Enter your Github token: ")
+        github_token = os.getenv("GITHUB_ACCESS_TOKEN") or input("Enter your Github token: ")
     if not organization:
-        organization = input("Enter the name of the organization to create the audit repository in: ")
+        organization = os.getenv("GITHUB_ORGANIZATION") or input("Enter the name of the organization to create the audit repository in: ")
     return github_token, organization
 
 
 def add_subtree(
     repo: Repository,
-    source_repo_name: str,
     target_repo_name: str,
-    source_username: str,
     organization: str,
     repo_path: str,
     subtree_path: str,
-    commit_hash: str,
+    repositories: List[dict],
     github_token: str = None,
 ):
     # Add report-generator-template as a subtree
@@ -327,17 +319,9 @@ def add_subtree(
         else:
             print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
             subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
-            # We'll use force push later, so no need for complex fetch/pull here
-
-        # Add authentication token to subtree URL if needed
-        if github_token:
-            authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
-        else:
-            # Fallback to environment variable if parameter not provided
-            token = os.getenv("GITHUB_ACCESS_TOKEN", "")
-            authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{token}@") if token else SUBTREE_URL
 
         # Add the subtree to the repo
+        authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
         subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_path} {authenticated_subtree_url} {MAIN_BRANCH_NAME} --squash", shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
@@ -363,27 +347,30 @@ def add_subtree(
             with open(summary_path, "r") as f:
                 summary_information = f.read()
 
-                # Update the summary_information.conf file with multiple repositories info
+            # Update repository information for all repositories
+            for i, repo_info in enumerate(repositories[:3], start=1):  # Max 3 repositories
+                suffix = "" if i == 1 else f"_{i}"
                 summary_information = re.sub(
-                    r"^project_github = .*$",
-                    f"project_github = Multi-repository audit",
+                    f"^project_github{suffix} = .*$",
+                    f"project_github{suffix} = {repo_info['sourceUrl']}",
+                    summary_information,
+                    flags=re.MULTILINE,
+                )
+                summary_information = re.sub(
+                    f"^commit_hash{suffix} = .*$",
+                    f"commit_hash{suffix} = {repo_info['commitHash']}",
                     summary_information,
                     flags=re.MULTILINE,
                 )
 
-                summary_information = re.sub(
-                    r"^private_github = .*$",
-                    f"private_github = https://github.com/{organization}/{target_repo_name}.git",
-                    summary_information,
-                    flags=re.MULTILINE,
-                )
+            summary_information = re.sub(
+                r"^private_github = .*$",
+                f"private_github = https://github.com/{organization}/{target_repo_name}.git",
+                summary_information,
+                flags=re.MULTILINE,
+            )
 
-                summary_information = re.sub(
-                    r"^commit_hash = .*$",
-                    f"commit_hash = Multiple commit hashes",
-                    summary_information,
-                    flags=re.MULTILINE,
-                )
+            print(summary_information)
 
             with open(summary_path, "w") as f:
                 f.write(summary_information)
