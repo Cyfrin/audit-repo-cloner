@@ -1,3 +1,4 @@
+import glob
 import json
 import logging as log
 import os
@@ -86,6 +87,7 @@ def create_audit_repo(
 
         # Initialize the repo with README
         initialize_repo(repo, temp_dir, github_token, organization, target_repo_name)
+        repo_path = os.path.join(temp_dir, target_repo_name)
 
         # Process each repository
         for repo_config in repositories:
@@ -98,6 +100,9 @@ def create_audit_repo(
                 continue
 
             clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder)
+
+        # Merge all submodules after all subtrees are added
+        merge_submodules(repo_path)
 
         repo = add_issue_template_to_repo(repo)
         repo = replace_labels_in_repo(repo)
@@ -174,7 +179,7 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
 Clone the repository:
 
 ```bash
-git clone [repository-url]
+git clone --recurse-submodules [repository-url]
 ```
 The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
             """
@@ -208,6 +213,104 @@ The source code for all audit target repositories has been merged into this repo
             subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
 
 
+def merge_submodules(repo_path: str):
+    """Merge all .gitmodules from subtrees into the root .gitmodules file"""
+    root_gitmodules = os.path.join(repo_path, ".gitmodules")
+    root_config = {}
+
+    # Find all .gitmodules files using glob and sort them (root first)
+    gitmodules_files = glob.glob(os.path.join(repo_path, "**", ".gitmodules"), recursive=True)
+    gitmodules_files.sort(key=lambda x: len(os.path.dirname(x)))  # Root will be first as it's shortest path
+
+    if not gitmodules_files:
+        log.info("No .gitmodules files found")
+        return
+
+    log.info(f"Found {len(gitmodules_files)} .gitmodules files")
+
+    # Process each .gitmodules file
+    for gitmodules_file in gitmodules_files:
+        try:
+            # Get git config
+            result = subprocess.run(["git", "config", "-f", gitmodules_file, "--list"], capture_output=True, text=True, check=True)
+
+            # Get relative path from repo root to the .gitmodules directory
+            subtree_path = os.path.dirname(os.path.relpath(gitmodules_file, repo_path))
+
+            # First pass: collect all submodule names and their configs
+            submodule_configs = {}
+            for line in result.stdout.splitlines():
+                if not line or "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                # Verify this is a submodule config line
+                if not key.startswith("submodule."):
+                    continue
+
+                # Split into parts and verify structure
+                parts = key.split(".")
+                if len(parts) < 3:
+                    continue
+
+                submodule_name = parts[1]
+                config_key = ".".join(parts[2:])
+
+                if submodule_name not in submodule_configs:
+                    submodule_configs[submodule_name] = {}
+                submodule_configs[submodule_name][config_key] = value
+
+            # Second pass: process and add configs
+            for submodule_name, configs in submodule_configs.items():
+                if "path" not in configs:
+                    continue
+
+                # Determine final name and path
+                if gitmodules_file == root_gitmodules:
+                    unique_name = submodule_name
+                    new_path = configs["path"].replace("\\", "/")
+                else:
+                    unique_name = f"{subtree_path.replace('/', '_')}_{submodule_name}"
+                    new_path = os.path.join(subtree_path, configs["path"]).replace("\\", "/")
+
+                # Add all configs for this submodule
+                for config_key, value in configs.items():
+                    full_key = f"submodule.{unique_name}.{config_key}"
+                    root_config[full_key] = value if config_key != "path" else new_path
+
+        except Exception as e:
+            log.warning(f"Error processing .gitmodules from {gitmodules_file}: {str(e)}")
+            continue
+
+    # Write combined configuration back to root .gitmodules
+    if root_config:
+        # First remove existing file to start fresh
+        if os.path.exists(root_gitmodules):
+            os.remove(root_gitmodules)
+
+        # Write each config
+        for key, value in root_config.items():
+            try:
+                subprocess.run(["git", "config", "-f", root_gitmodules, key, value], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                log.error(f"Failed to write config {key}: {e.stderr}")
+                continue
+
+        # Add and commit the changes
+        try:
+            subprocess.run(["git", "-C", repo_path, "add", ".gitmodules"], check=True)
+            subprocess.run(["git", "-C", repo_path, "commit", "-m", "Update .gitmodules with all submodules"], check=True)
+            subprocess.run(["git", "-C", repo_path, "push"], check=True)
+            log.info("Updated .gitmodules with all submodules")
+        except subprocess.CalledProcessError as e:
+            log.error(f"Failed to commit/push changes: {e}")
+    else:
+        log.warning("No submodule configurations found to write")
+
+
 def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
     """Clone a source repository and merge it into the target repo using git subtree"""
     repo_path = os.path.join(temp_dir, repo.name)
@@ -223,7 +326,6 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     authenticated_url = source_url.replace("https://", f"https://{github_token}@")
 
     url_parts = source_url.split("/")
-    url_parts[-2]
     source_repo_name = url_parts[-1]
 
     # Get the target path for the subtree
@@ -351,26 +453,24 @@ def add_subtree(
             for i, repo_info in enumerate(repositories[:3], start=1):  # Max 3 repositories
                 suffix = "" if i == 1 else f"_{i}"
                 summary_information = re.sub(
-                    f"^project_github{suffix} = .*$",
+                    rf"^project_github{suffix}\s*=.*$",
                     f"project_github{suffix} = {repo_info['sourceUrl']}",
                     summary_information,
                     flags=re.MULTILINE,
                 )
                 summary_information = re.sub(
-                    f"^commit_hash{suffix} = .*$",
+                    rf"^commit_hash{suffix}\s*=.*$",
                     f"commit_hash{suffix} = {repo_info['commitHash']}",
                     summary_information,
                     flags=re.MULTILINE,
                 )
 
             summary_information = re.sub(
-                r"^private_github = .*$",
+                r"^private_github\s*=.*$",
                 f"private_github = https://github.com/{organization}/{target_repo_name}.git",
                 summary_information,
                 flags=re.MULTILINE,
             )
-
-            print(summary_information)
 
             with open(summary_path, "w") as f:
                 f.write(summary_information)
