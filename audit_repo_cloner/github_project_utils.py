@@ -1,6 +1,10 @@
 from github import Repository
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
+import logging
+
+# Set gql logging level to WARNING to suppress INFO logs
+logging.getLogger('gql.transport.requests').setLevel(logging.WARNING)
 
 
 def get_node_ids(client: Client, organization: str, target_repo_name: str, project_template_id: int) -> tuple[str, str, str]:

@@ -5,8 +5,8 @@ This repository contains a Python package to clone a repo and automatically prep
 # What it does
 
 It will take the following steps:
-1. Take the `source` repository you want to set up for audit
-2. Take the `target` repository name you want to use for the private --repo
+1. Take one or more `source` repositories you want to set up for audit
+2. Take the `target` repository name you want to use for the private repository
 3. Add an `issue_template` to the repo, so issues can be formatted as audit findings, like:
 
 ```
@@ -19,11 +19,12 @@ It will take the following steps:
 ```
 
 4. Update labels to label issues based on severity and status
-5. Create an audit tag at the given commit hash (full SHA)
-6. Create branches for each of the auditors participating
-7. Create a branch for the final report
-8. Add the [report-generator-template](https://github.com/Cyfrin/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
-9. Attempt to set up a GitHub project board
+5. Add each source repository as a git submodule at the specified commit hash
+6. Create a tag for each source repository at the given commit hash (full SHA)
+7. Create branches for each of the auditors participating
+8. Create a branch for the final report
+9. Add the [report-generator-template](https://github.com/Cyfrin/report-generator-template) to the repo to make it easier to compile the report, and add a button in GitHub actions to re-generate the report on-demand
+10. Attempt to set up a GitHub project board
 
 Note: Changes to `report-generator-template` can be pulled into the generated repo by running:
 ```bash
@@ -92,6 +93,49 @@ Note: this access token is only used to create the repo initially. To allow the 
 
 *Note: $ denotes a command to run in the terminal*
 
+## Using config.json for multiple repositories
+
+The tool now supports cloning multiple repositories into a single audit repository using git submodules. To use this feature, create a `config.json` file based on the provided example:
+
+```bash
+cp config.json.example config.json
+```
+
+Edit the `config.json` file to include your repository details:
+
+```json
+{
+  "targetRepoName": "audit-2024-05-myproject",
+  "projectTitle": "[Audit] My Project (2024-05)",
+  "auditors": "auditor1 auditor2 auditor3",
+  "repositories": [
+    {
+      "sourceUrl": "https://github.com/username/protocol-repo",
+      "commitHash": "abcdef1234567890abcdef1234567890abcdef12",
+      "subFolder": "protocol"
+    },
+    {
+      "sourceUrl": "https://github.com/username/frontend-repo",
+      "commitHash": "fedcba0987654321fedcba0987654321fedcba09",
+      "subFolder": "frontend"
+    }
+  ]
+}
+```
+
+Then run the tool:
+
+```bash
+audit_repo_cloner --config-file config.json --github-token YOUR_TOKEN --organization YOUR_ORG
+```
+
+Or simply:
+
+```bash
+audit_repo_cloner
+```
+
+This will prompt for any missing information and use values from your `.env` file and `config.json`.
 
 ## Help
 
@@ -99,7 +143,7 @@ Note: this access token is only used to create the repo initially. To allow the 
 audit_repo_cloner --help
 ```
 
-## As a single command
+## As a single command (legacy mode - single repository)
 
 From source:
 ```bash
@@ -113,53 +157,3 @@ audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcon
 ```
 
 ```
-$ audit_repo_cloner
-"Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:
-
-1) Source repo url:
-```
-Enter: `https://github.com/Cyfrin/foundry-full-course-f23`
-
-```
-2) Target repo name (leave blank to use source repo name):
-```
-Enter: `""`
-
-```
-3) Audit commit hash (be sure to copy the full SHA):
-```
-Enter: `25d62b685857f5c1906675a3876d7d7773a8b3bd`
-
-```
-4) Enter the names of the auditors (separated by spaces):
-```
-Enter: `"tricky-p blue-frog-man giiioooooooo"`
-
-```
-5) Enter the name of the organization to create the audit repository in:
-```
-
-Enter: `<YOUR_ORG_NAME>`
-
-```
-6) Enter the title of the GitHub project board:
-```
-
-Enter: `Cyfrin Audit`
-
-And you'll get a loooong output, but, hopefully, you'll have a repo ready for audit!
-
-### Project Board Configuration
-To create and link a GitHub project board, you'll first need to manually create a template project board in your organization. This only needs to be done once and can be used for all subsequent runs of this tool. The resource identifier for the template project board will be the number at the end of the URL. For example, if the URL is `https://github.com/orgs/Cyfrin/projects/5/views/1` then the resource identifier is `5`. This identifier will be used to get the global node ID for the project board, which is used to link the project board to the audit repository. The ID of Cyfrin's template project board is `5` and is set as a constant in `constants.py`:
-```python
-PROJECT_TEMPLATE_ID = 5
-```
-If forking this repo or updating the template project board, change this value to the ID of your desired template project board accordingly.
-
-
-### Name for the cloned repo and the project board
-It is recommended using the following naming convention for the cloned repo and the project board:
-- Cloned Repo: `audit-YYYY-MM-<protocol>` (e.g. `audit-2024-03-awesomedefi`)
-- Project Board: `[Audit] <Protocol> (YYYY-MM)` (e.g. `[Audit] Awesome Defi Core (2024-03)`)
-
-These can be set as environment variables or passed as CLI arguments. If not set, the default values are used.
