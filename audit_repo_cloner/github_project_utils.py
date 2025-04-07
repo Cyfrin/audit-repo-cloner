@@ -4,7 +4,7 @@ from gql.transport.requests import RequestsHTTPTransport
 import logging
 
 # Set gql logging level to WARNING to suppress INFO logs
-logging.getLogger('gql.transport.requests').setLevel(logging.WARNING)
+logging.getLogger("gql.transport.requests").setLevel(logging.WARNING)
 
 
 def get_node_ids(client: Client, organization: str, target_repo_name: str, project_template_id: int) -> tuple[str, str, str]:
@@ -67,17 +67,14 @@ def copy_project(client: Client, owner_node_id: str, project_template_id: str, p
 
     try:
         # Execute the mutation
-        response = client.execute(
-            create_project_mutation, variable_values=copy_mutation_variables
-        )
+        response = client.execute(create_project_mutation, variable_values=copy_mutation_variables)
         project_id = response["copyProjectV2"]["projectV2"]["id"]
         project_title = response["copyProjectV2"]["projectV2"]["title"]
-        print(
-            f'Project "{project_title}" has been created successfully with id {project_id}'
-        )
+        print(f'Project "{project_title}" has been created successfully with id {project_id}')
         return project_id
     except Exception as e:
         raise Exception(f"Error occurred while copying the template project: {str(e)}")
+
 
 def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> str:
     # GraphQL Mutation for linking a project to a repo
@@ -103,12 +100,8 @@ def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> 
 
     try:
         # Execute the mutation
-        response = client.execute(
-            link_project_mutation, variable_values=link_mutation_variables
-        )
-        print(
-            f"Project with id {project_id} has been successfully linked to the repo."
-        )
+        response = client.execute(link_project_mutation, variable_values=link_mutation_variables)
+        print(f"Project with id {project_id} has been successfully linked to the repo.")
         return project_id
     except Exception as e:
         raise Exception(f"Error occurred while linking the project to the repo: {str(e)}")
@@ -141,9 +134,7 @@ def update_project(client: Client, target_repo_name: str, project_id: str, proje
 
     try:
         # Execute the mutation
-        response = client.execute(
-            update_project_mutation, variable_values=update_mutation_variables
-        )
+        response = client.execute(update_project_mutation, variable_values=update_mutation_variables)
 
         # Check for errors
         if "errors" in response:
@@ -182,12 +173,12 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
         repo_node_id, org_node_id, project_template_id = get_node_ids(client, organization, target_repo_name, int(project_template_id))
 
         if not repo_node_id or not org_node_id:
-            raise Exception('Failed to get the repository or organization node ID.')
+            raise Exception("Failed to get the repository or organization node ID.")
 
         project_node_id = copy_project(client, org_node_id, project_template_id, project_title)
 
         if not project_node_id:
-            raise Exception('Failed to copy the project.')
+            raise Exception("Failed to copy the project.")
 
     except Exception as e:
         raise Exception(f"Error occurred while cloning project: {str(e)}")
@@ -205,4 +196,3 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
         print(f"Error occurred while linking project to repo: {str(e)}")
 
     return project_node_id
-

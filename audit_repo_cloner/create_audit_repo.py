@@ -2,30 +2,26 @@ import shutil
 import os
 import json
 from datetime import date
-from typing import List, Optional, Tuple, Dict, Any
-from github import Github, GithubException, Repository, Organization
-from dotenv import load_dotenv
-from create_action import create_action
-from github_project_utils import clone_project
+from typing import List
+from github import Github, GithubException, Repository
+from audit_repo_cloner.create_action import create_action
+from audit_repo_cloner.github_project_utils import clone_project
 import click
 import subprocess
 import tempfile
 import logging as log
 import re
-from __version__ import __version__, __title__
-
-# Configure logging - suppress gql logs
-log.basicConfig(level=log.INFO)
-log.getLogger('gql.transport.requests').setLevel(log.WARNING)
-
-from constants import (
+from audit_repo_cloner.__version__ import __version__, __title__
+from audit_repo_cloner.constants import (
     ISSUE_TEMPLATE,
     DEFAULT_LABELS,
     SEVERITY_DATA,
     PROJECT_TEMPLATE_ID,
 )
 
-load_dotenv(override=True)
+# Configure logging - suppress gql logs
+log.basicConfig(level=log.INFO)
+log.getLogger("gql.transport.requests").setLevel(log.WARNING)
 
 # Globals are shit. We should refactor again in the future...
 REPORT_BRANCH_NAME = "report"
@@ -62,9 +58,7 @@ def create_audit_repo(
     """
 
     if not os.path.exists(config_file):
-        raise click.UsageError(
-            f"Config file {config_file} not found. Please create one based on config.json.example."
-        )
+        raise click.UsageError(f"Config file {config_file} not found. Please create one based on config.json.example.")
 
     with open(config_file, "r") as f:
         config = json.load(f)
@@ -76,20 +70,14 @@ def create_audit_repo(
     repositories = config.get("repositories", [])
 
     if not repositories:
-        raise click.UsageError(
-            "No repositories specified in the config file."
-        )
+        raise click.UsageError("No repositories specified in the config file.")
 
     if not target_repo_name or not auditors:
-        raise click.UsageError(
-            "Target repo name and auditors must be provided in the config file."
-        )
+        raise click.UsageError("Target repo name and auditors must be provided in the config file.")
 
     github_token, organization = prompt_for_token_and_org(github_token, organization)
     if not github_token or not organization:
-        raise click.UsageError(
-            "GitHub token and organization must be provided either through environment variables or as options."
-        )
+        raise click.UsageError("GitHub token and organization must be provided either through environment variables or as options.")
 
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
@@ -111,14 +99,7 @@ def create_audit_repo(
                 log.warning(f"Skipping repository with missing sourceUrl or commitHash: {repo_config}")
                 continue
 
-            clone_source_repo_as_subtree(
-                repo,
-                temp_dir,
-                github_token,
-                source_url,
-                commit_hash,
-                sub_folder
-            )
+            clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder)
 
         repo = add_issue_template_to_repo(repo)
         repo = replace_labels_in_repo(repo)
@@ -190,7 +171,8 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
 
     # Create README.md
     with open(os.path.join(repo_path, "README.md"), "w") as f:
-        f.write(f"""# {target_repo_name}
+        f.write(
+            f"""# {target_repo_name}
 
 Audit repository containing multiple projects.
 
@@ -202,47 +184,26 @@ git clone [repository-url]
 ```
 
 The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
-""")
+"""
+        )
 
     # Configure git
     subprocess.run(["git", "config", "user.name", "Cyfrin Bot"], cwd=repo_path, check=False)
     subprocess.run(["git", "config", "user.email", "bot@cyfrin.io"], cwd=repo_path, check=False)
 
     # Add remote
-    subprocess.run(
-        [
-            "git",
-            "remote",
-            "add",
-            "origin",
-            f"https://{github_token}@github.com/{organization}/{target_repo_name}.git"
-        ],
-        cwd=repo_path,
-        check=False
-    )
+    subprocess.run(["git", "remote", "add", "origin", f"https://{github_token}@github.com/{organization}/{target_repo_name}.git"], cwd=repo_path, check=False)
 
     # Commit and push
     subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
     subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=False)
 
     # Check the current branch
-    branch_process = subprocess.run(
-        ["git", "branch", "--show-current"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False
-    )
+    branch_process = subprocess.run(["git", "branch", "--show-current"], cwd=repo_path, capture_output=True, text=True, check=False)
     current_branch = branch_process.stdout.strip() or MAIN_BRANCH_NAME
 
     # Push to the current branch
-    push_result = subprocess.run(
-        ["git", "push", "-u", "origin", current_branch],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False
-    )
+    push_result = subprocess.run(["git", "push", "-u", "origin", current_branch], cwd=repo_path, capture_output=True, text=True, check=False)
 
     if push_result.returncode != 0:
         log.error(f"Failed to push to {current_branch}: {push_result.stderr}")
@@ -254,14 +215,7 @@ The source code for all audit target repositories has been merged into this repo
             subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
 
 
-def clone_source_repo_as_subtree(
-    repo: Repository,
-    temp_dir: str,
-    github_token: str,
-    source_url: str,
-    commit_hash: str,
-    sub_folder: str
-):
+def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
     """Clone a source repository and merge it into the target repo using git subtree"""
     repo_path = os.path.join(temp_dir, repo.name)
 
@@ -270,13 +224,13 @@ def clone_source_repo_as_subtree(
     source_url = source_url.rstrip("/")  # remove any trailing forward slashes
 
     # Remove /tree/{branch} from URLs - this is a common error when copying from GitHub UI
-    source_url = re.sub(r'/tree/[^/]+/?$', '', source_url)
+    source_url = re.sub(r"/tree/[^/]+/?$", "", source_url)
 
     # Add authentication token to the URL for private repositories
     authenticated_url = source_url.replace("https://", f"https://{github_token}@")
 
     url_parts = source_url.split("/")
-    source_username = url_parts[-2]
+    url_parts[-2]
     source_repo_name = url_parts[-1]
 
     # Get the target path for the subtree
@@ -287,7 +241,7 @@ def clone_source_repo_as_subtree(
     if os.path.exists(subtree_path):
         log.info(f"Removing existing directory {subtree_path}")
         try:
-            if os.name == 'nt':  # Windows
+            if os.name == "nt":  # Windows
                 subprocess.run(f'rmdir /S /Q "{subtree_path}"', shell=True, check=False)
             else:  # Unix-like
                 subprocess.run(f'rm -rf "{subtree_path}"', shell=True, check=False)
@@ -304,31 +258,15 @@ def clone_source_repo_as_subtree(
 
     try:
         # Add the subtree to the repo
-        subtree_result = subprocess.run(
-            f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash} --squash",
-            shell=True,
-            check=False,
-            capture_output=True,
-            text=True
-        )
+        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash} --squash", shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-        subprocess.run(
-            ["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"],
-            cwd=repo_path,
-            check=False
-        )
-        push_process = subprocess.run(
-            ["git", "push"],
-            cwd=repo_path,
-            check=False,
-            capture_output=True,
-            text=True
-        )
+        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
+        push_process = subprocess.run(["git", "push"], cwd=repo_path, check=False, capture_output=True, text=True)
 
         if push_process.returncode != 0:
             log.warning(f"Failed to push changes: {push_process.stderr}")
@@ -380,12 +318,7 @@ def add_subtree(
         print(f"Adding subtree {SUBTREE_NAME}...")
 
         # Create report branch if it doesn't exist
-        check_branch = subprocess.run(
-            f"git -C {repo_path} branch --list {REPORT_BRANCH_NAME}",
-            shell=True,
-            capture_output=True,
-            text=True
-        )
+        check_branch = subprocess.run(f"git -C {repo_path} branch --list {REPORT_BRANCH_NAME}", shell=True, capture_output=True, text=True)
 
         if REPORT_BRANCH_NAME not in check_branch.stdout:
             print(f"Creating {REPORT_BRANCH_NAME} branch...")
@@ -405,13 +338,7 @@ def add_subtree(
             authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{token}@") if token else SUBTREE_URL
 
         # Add the subtree to the repo
-        subtree_result = subprocess.run(
-            f"git -C {repo_path} subtree add --prefix {subtree_path} {authenticated_subtree_url} {MAIN_BRANCH_NAME} --squash",
-            shell=True,
-            check=False,
-            capture_output=True,
-            text=True
-        )
+        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_path} {authenticated_subtree_url} {MAIN_BRANCH_NAME} --squash", shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
             log.error(f"Error adding subtree: {subtree_result.stderr}")
@@ -420,8 +347,8 @@ def add_subtree(
         # Move workflow file to the correct location
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         try:
-            source = os.path.join(repo_path, subtree_path, '.github', 'workflows', 'main.yml')
-            destination = os.path.join(repo_path, '.github', 'workflows', 'main.yml')
+            source = os.path.join(repo_path, subtree_path, ".github", "workflows", "main.yml")
+            destination = os.path.join(repo_path, ".github", "workflows", "main.yml")
 
             if os.path.exists(source):
                 shutil.move(source, destination)
@@ -465,25 +392,13 @@ def add_subtree(
 
         # Commit and push changes
         subprocess.run(f"git -C {repo_path} add .", shell=True)
-        commit_result = subprocess.run(
-            f'git -C {repo_path} commit -m "install: {SUBTREE_NAME}"',
-            shell=True,
-            check=False,
-            capture_output=True,
-            text=True
-        )
+        commit_result = subprocess.run(f'git -C {repo_path} commit -m "install: {SUBTREE_NAME}"', shell=True, check=False, capture_output=True, text=True)
 
         if commit_result.returncode != 0 and "nothing to commit" not in commit_result.stdout:
             log.warning(f"Error committing changes: {commit_result.stderr}")
 
         # Always use force push since we want our version to take precedence
-        push_result = subprocess.run(
-            f"git -C {repo_path} push --force origin {REPORT_BRANCH_NAME}",
-            shell=True,
-            check=False,
-            capture_output=True,
-            text=True
-        )
+        push_result = subprocess.run(f"git -C {repo_path} push --force origin {REPORT_BRANCH_NAME}", shell=True, check=False, capture_output=True, text=True)
 
         if push_result.returncode != 0:
             log.warning(f"Error force pushing changes: {push_result.stderr}")
@@ -515,51 +430,29 @@ def set_up_ci(repo, subtree_path: str):
     return repo
 
 
-def prompt_for_details(
-    source_url: str,
-    target_repo_name: str,
-    commit_hash: str,
-    auditors: str,
-    github_token: str,
-    organization: str,
-    project_title: str
-):
+def prompt_for_details(source_url: str, target_repo_name: str, commit_hash: str, auditors: str, github_token: str, organization: str, project_title: str):
     while True:
         prompt_counter = 1
 
         if not source_url:
-            source_url = input(
-                f"Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: "
-            )
+            source_url = input(f"Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: ")
             prompt_counter += 1
         if not target_repo_name:
-            target_repo_name = input(
-                f"\n{prompt_counter}) Target repo name (leave blank to use source repo name): "
-            )
+            target_repo_name = input(f"\n{prompt_counter}) Target repo name (leave blank to use source repo name): ")
             prompt_counter += 1
         if not commit_hash:
-            commit_hash = input(
-                f"\n{prompt_counter}) Audit commit hash (be sure to copy the full SHA): "
-            )
+            commit_hash = input(f"\n{prompt_counter}) Audit commit hash (be sure to copy the full SHA): ")
             prompt_counter += 1
         if not auditors:
-            auditors = input(
-                f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): "
-            )
+            auditors = input(f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): ")
         if not github_token:
-            github_token = input(
-                f"\n{prompt_counter}) Enter your Github token: "
-            )
+            github_token = input(f"\n{prompt_counter}) Enter your Github token: ")
             prompt_counter += 1
         if not organization:
-            organization = input(
-                f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: "
-            )
+            organization = input(f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: ")
             prompt_counter += 1
         if not project_title:
-            project_title = input(
-                f"\n{prompt_counter}) Enter the title of the GitHub project board: "
-            )
+            project_title = input(f"\n{prompt_counter}) Enter the title of the GitHub project board: ")
             prompt_counter += 1
 
         if source_url and commit_hash and auditors and github_token and organization and project_title:
@@ -602,14 +495,12 @@ def add_issue_template_to_repo(repo) -> Repository:
     # Get the existing finding.md file, if it exists
     try:
         finding_file = repo.get_contents(".github/ISSUE_TEMPLATE/finding.md")
-    except GithubException as e:
+    except GithubException:
         finding_file = None
 
     # If finding.md already exists, leave it be. Otherwise, create the file.
     if finding_file is None:
-        repo.create_file(
-            ".github/ISSUE_TEMPLATE/finding.md", "finding.md", ISSUE_TEMPLATE
-        )
+        repo.create_file(".github/ISSUE_TEMPLATE/finding.md", "finding.md", ISSUE_TEMPLATE)
     return repo
 
 
@@ -620,7 +511,7 @@ def delete_default_labels(repo) -> Repository:
             label = repo.get_label(label_name)
             log.info(f"Deleting {label}...")
             label.delete()
-        except Exception as e:
+        except Exception:
             log.warn(f"Label {label} does not exist. Skipping...")
     log.info("Finished deleting default labels")
     return repo
@@ -671,17 +562,11 @@ def create_report_branch(repo, commit_hash) -> Repository:
             exit()
     return repo
 
+
 # IMPORTANT: project creation via REST API is not supported anymore
 # https://stackoverflow.com/questions/73268885/unable-to-create-project-in-repository-or-organisation-using-github-rest-api
 # we use a non-standard way to access GitHub's GraphQL
-def set_up_project_board(
-        repo: Repository,
-        github_token: str,
-        organization: str,
-        target_repo_name: str,
-        project_template_id: str,
-        project_title: str = "DEFAULT PROJECT"
-    ):
+def set_up_project_board(repo: Repository, github_token: str, organization: str, target_repo_name: str, project_template_id: str, project_title: str = "DEFAULT PROJECT"):
     if not project_title:
         project_title = "DEFAULT PROJECT"
     try:
@@ -691,6 +576,7 @@ def set_up_project_board(
         print(f"Error occurred while setting up project board: {str(e)}")
         print("Please set up project board manually.")
     return
+
 
 if __name__ == "__main__":
     create_audit_repo()

@@ -7,17 +7,14 @@ Deprecated==1.2.13
 exceptiongroup==1.1.1
 gql==3.5.0
 idna==3.4
-iniconfig==2.0.0
 numpy==1.24.3
 packaging==23.1
 pandocfilters==1.5.0
-pluggy==1.0.0
 pyasn1==0.5.0
 pycparser==2.21
 PyGithub==1.58.1
 PyJWT==2.6.0
 PyNaCl==1.5.0
-pytest==7.3.1
 python-dotenv==1.0.0
 PyYAML==6.0
 requests==2.29.0
@@ -26,3 +23,8 @@ rsa==4.9
 tomli==2.0.1
 urllib3==1.26.15
 wrapt==1.15.0
+pre-commit==3.2.0
+autoflake==1.4
+isort==5.12.0
+black==22.3.0
+flake8==4.0.1

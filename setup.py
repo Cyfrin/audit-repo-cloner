@@ -11,7 +11,7 @@ if CURRENT_PYTHON < REQUIRED_PYTHON:
 ==========================
 Unsupported Python version
 ==========================
-This version of Requests requires at least Python {}.{}, but
+This version of audit-repo-cloner requires at least Python {}.{}, but
 you're trying to install it on Python {}.{}. To resolve this,
 consider upgrading to a supported Python version.
 """.format(
@@ -34,41 +34,13 @@ setup(
     version=about["__version__"],
     author=about["__author__"],
     license=about["__license__"],
-    install_requires=[
-        "certifi",
-        "cffi",
-        "charset-normalizer",
-        "click",
-        "cryptography",
-        "Deprecated",
-        "exceptiongroup",
-        "idna",
-        "iniconfig",
-        "numpy",
-        "packaging",
-        "pandocfilters",
-        "pluggy",
-        "pyasn1",
-        "pycparser",
-        "PyGithub",
-        "PyJWT",
-        "PyNaCl",
-        "pytest",
-        "python-dotenv",
-        "PyYAML",
-        "requests",
-        "rsa",
-        "tomli",
-        "urllib3",
-        "wrapt"
-    ],
+    install_requires=["certifi", "cffi", "charset-normalizer", "click", "cryptography", "Deprecated", "exceptiongroup", "gql", "idna", "packaging", "pyasn1", "pycparser", "PyGithub", "PyJWT", "PyNaCl", "python-dotenv", "PyYAML", "requests", "requests-toolbelt", "rsa", "tomli", "urllib3", "wrapt"],
     packages=[about["__title__"]],
     python_requires=">=3.7, <4",
     url="https://github.com/Cyfrin/audit-repo-cloner",
     long_description=readme,
     long_description_content_type="text/markdown",
     classifiers=[
-        "Development Status :: 2 - Pre-Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.7",

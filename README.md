@@ -37,9 +37,9 @@ git subtree pull --prefix cyfrin-report/report-generator-template https://github
 
 - [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
   - You'll know you did it right if you can run `git --version` and you see a response like `git version x.x.x`
-- [Python](https://www.python.org/downloads/)
+- [Python 3.7 or higher](https://www.python.org/downloads/)
   - You'll know you've installed python right if you can run:
-    - `python --version` or `python3 --version` and get an ouput like: `Python x.x.x`
+    - `python --version` or `python3 --version` and get an output like: `Python 3.x.x`
 - [pip](https://pypi.org/project/pip/)
   - You'll know you did it right if you can run `pip --version` or `pip3 --version` and get an output like `pip x.x from /some/path/here (python x.x)`
 
@@ -67,14 +67,8 @@ pip install -e .
 
 You'll know you've installed it correctly if you can run:
 
-```
+```bash
 audit_repo_cloner --version
-```
-
-And get an output like:
-
-```
-audit_repo_cloner, version 0.2.2
 ```
 
 ## Getting a GitHub token
@@ -91,11 +85,9 @@ Note: this access token is only used to create the repo initially. To allow the 
 
 # Usage
 
-*Note: $ denotes a command to run in the terminal*
-
 ## Using config.json for multiple repositories
 
-The tool now supports cloning multiple repositories into a single audit repository using git submodules. To use this feature, create a `config.json` file based on the provided example:
+The tool supports cloning multiple repositories into a single audit repository using git submodules. To use this feature, create a `config.json` file based on the provided example:
 
 ```bash
 cp config.json.example config.json
@@ -139,21 +131,6 @@ This will prompt for any missing information and use values from your `.env` fil
 
 ## Help
 
-```
-audit_repo_cloner --help
-```
-
-## As a single command (legacy mode - single repository)
-
-From source:
 ```bash
-python ./create_audit_repo.py`
-```
-
-Otherwise (pipx):
-
-```
-audit_repo_cloner --source-url https://github.com/PatrickAlphaC/hardhat-smartcontract-lottery-fcc --target-repo-name "" --commit-hash 5e4872358cd2bda1936c29f460ece2308af4def6 --auditors "tricky-p blue-frog-man giiioooooooo" --organization cyfrin --github-token <YOUR_ACCESS_TOKEN>
-```
-
+audit_repo_cloner --help
 ```
