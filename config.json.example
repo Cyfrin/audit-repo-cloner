@@ -1,17 +1,17 @@
 {
-  "targetRepoName": "my-audit-project",
-  "projectTitle": "My Audit Project",
+  "targetRepoName": "audit-2024-05-myproject",
+  "projectTitle": "[Audit] My Project (2024-05)",
   "auditors": "auditor1 auditor2 auditor3",
   "repositories": [
     {
-      "sourceUrl": "https://github.com/username/repo1",
+      "sourceUrl": "https://github.com/username/main-repo",
       "commitHash": "abcdef1234567890abcdef1234567890abcdef12",
-      "subFolder": "protocol"
+      "subFolder": "main"
     },
     {
-      "sourceUrl": "https://github.com/username/repo2",
-      "commitHash": "fedcba0987654321fedcba0987654321fedcba09",
-      "subFolder": "frontend"
+      "sourceUrl": "https://github.com/username/periphery-repo",
+      "commitHash": "abcdef1234567890abcdef1234567890abcdef12",
+      "subFolder": "periphery"
     }
   ]
 }

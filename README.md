@@ -24,7 +24,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token)
+2. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and add it to the `.env` file:
+```bash
+cp .env.example .env
+```
 
 3. Create a `config.json` file:
 ```bash
@@ -49,7 +52,12 @@ cp config.json.example config.json
 
 5. Run the tool:
 ```bash
-audit_repo_cloner --config-file config.json --github-token YOUR_TOKEN --organization YOUR_ORG
+# specifying github token and organization in the cmd
+python -m audit_repo_cloner.create_audit_repo --config-file config.json --github-token YOUR_TOKEN --organization YOUR_ORG
+# using .env file for github token and org
+python -m audit_repo_cloner.create_audit_repo --config-file config.json
+# if config file is not specified, config.json is used by default
+python -m audit_repo_cloner.create_audit_repo
 ```
 
 ## Development
@@ -61,18 +69,10 @@ cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
 ```
 
 2. Install pre-commit hooks:
 ```bash
 pre-commit install
 pre-commit run --all-files
-```
-
-## Updating Report Generator
-
-To pull latest changes from report-generator-template:
-```bash
-git subtree pull --prefix cyfrin-report/report-generator-template https://github.com/Cyfrin/report-generator-template main --squash
 ```

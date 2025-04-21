@@ -37,9 +37,3 @@ repos:
   hooks:
     - id: black
       args: ['--line-length=300']
-
-- repo: https://github.com/pycqa/flake8
-  rev: 4.0.1
-  hooks:
-  - id: flake8
-    args: ['--ignore=E129,E2,E722,E501,F541,F841,F405,F403,E712,W503,E203,E231,E402,F401,F821,F811,E711,E741,C901,W504,E302,E305']

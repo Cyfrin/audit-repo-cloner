@@ -1,5 +1,6 @@
-from github import GithubException
 from base64 import b64encode
+
+from github import GithubException
 from nacl import encoding, public
 
 

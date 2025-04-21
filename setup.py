@@ -1,6 +1,7 @@
-from setuptools import setup
 import os
 import sys
+
+from setuptools import setup
 
 CURRENT_PYTHON = sys.version_info[:2]
 REQUIRED_PYTHON = (3, 7)

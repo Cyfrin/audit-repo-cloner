@@ -1,7 +1,8 @@
-from github import Repository
-from gql import gql, Client
-from gql.transport.requests import RequestsHTTPTransport
 import logging
+
+from github import Repository
+from gql import Client, gql
+from gql.transport.requests import RequestsHTTPTransport
 
 # Set gql logging level to WARNING to suppress INFO logs
 logging.getLogger("gql.transport.requests").setLevel(logging.WARNING)
