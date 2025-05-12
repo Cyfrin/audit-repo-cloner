@@ -31,6 +31,13 @@ SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 CONFIG_FILE = "config.json"
 
+# GitHub Actions related paths
+GITHUB_ACTIONS_PATHS = [
+    ".github/workflows",
+    ".github/actions",
+    ".github/action",
+]
+
 
 @click.command()
 @click.version_option(
@@ -311,6 +318,32 @@ def merge_submodules(repo_path: str):
         log.warning("No submodule configurations found to write")
 
 
+def remove_github_actions(directory_path: str):
+    """Remove GitHub Actions directories from cloned repositories for security.
+
+    This prevents any potential security breaches from executing actions
+    from the original repositories.
+    """
+    log.info(f"Removing GitHub Actions from {directory_path}")
+
+    for actions_path in GITHUB_ACTIONS_PATHS:
+        full_path = os.path.join(directory_path, actions_path)
+        if os.path.exists(full_path):
+            log.info(f"Removing GitHub Actions directory: {full_path}")
+            try:
+                if os.name == "nt":  # Windows
+                    subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
+                else:  # Unix-like
+                    subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
+
+                # Create a .gitkeep file to preserve the directory structure if needed
+                os.makedirs(full_path, exist_ok=True)
+                with open(os.path.join(full_path, ".gitkeep"), "w") as f:
+                    f.write("# GitHub Actions removed for security\n")
+            except Exception as e:
+                log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
+
+
 def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
     """Clone a source repository and merge it into the target repo using git subtree"""
     repo_path = os.path.join(temp_dir, repo.name)
@@ -357,6 +390,9 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
+
+        # Remove GitHub Actions from the cloned repository for security
+        remove_github_actions(subtree_path)
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)

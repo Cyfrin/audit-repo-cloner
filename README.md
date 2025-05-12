@@ -12,6 +12,7 @@ A Python package to clone a repo and automatically prepare it for [Cyfrin](https
 - Create branches for auditors and final report
 - Add [report-generator-template](https://github.com/Cyfrin/report-generator-template)
 - Set up GitHub project board
+- Remove GitHub Actions from source repositories for security
 
 ## Quick Start
 

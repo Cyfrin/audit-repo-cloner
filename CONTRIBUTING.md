@@ -32,6 +32,16 @@ Note: By default, `pre-commit run` without `--all-files` only checks staged file
 1. Stage your files with `git add .` before running pre-commit, or
 2. Use `pre-commit run --all-files` to check all files regardless of staging status
 
+# Security Considerations
+
+When contributing to this project, please keep these security considerations in mind:
+
+1. **GitHub Actions Removal**: The tool deliberately removes GitHub Actions from cloned repositories before committing them. This is an important security feature to prevent potential security breaches from executing unknown workflows. Always maintain this functionality.
+
+2. **Credential Handling**: Be careful with how GitHub tokens and other credentials are handled. Never hardcode or log sensitive information.
+
+3. **External Command Execution**: The tool runs many external Git commands. Always sanitize user input and repository paths when constructing these commands.
+
 # Making Changes
 
 1. Create a new branch for your changes:
