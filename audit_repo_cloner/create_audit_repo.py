@@ -396,7 +396,7 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]} (GitHub Actions removed for security)"], cwd=repo_path, check=False)
+        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
         push_process = subprocess.run(["git", "push"], cwd=repo_path, check=False, capture_output=True, text=True)
 
         if push_process.returncode != 0:
