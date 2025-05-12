@@ -31,6 +31,13 @@ SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 CONFIG_FILE = "config.json"
 
+# GitHub Actions related paths
+GITHUB_ACTIONS_PATHS = [
+    ".github/workflows",
+    ".github/actions",
+    ".github/action",
+]
+
 
 @click.command()
 @click.version_option(
@@ -311,6 +318,32 @@ def merge_submodules(repo_path: str):
         log.warning("No submodule configurations found to write")
 
 
+def remove_github_actions(directory_path: str):
+    """Remove GitHub Actions directories from cloned repositories for security.
+
+    This prevents any potential security breaches from executing actions
+    from the original repositories.
+    """
+    log.info(f"Removing GitHub Actions from {directory_path}")
+
+    for actions_path in GITHUB_ACTIONS_PATHS:
+        full_path = os.path.join(directory_path, actions_path)
+        if os.path.exists(full_path):
+            log.info(f"Removing GitHub Actions directory: {full_path}")
+            try:
+                if os.name == "nt":  # Windows
+                    subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
+                else:  # Unix-like
+                    subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
+
+                # Create a .gitkeep file to preserve the directory structure if needed
+                os.makedirs(full_path, exist_ok=True)
+                with open(os.path.join(full_path, ".gitkeep"), "w") as f:
+                    f.write("# GitHub Actions removed for security\n")
+            except Exception as e:
+                log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
+
+
 def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
     """Clone a source repository and merge it into the target repo using git subtree"""
     repo_path = os.path.join(temp_dir, repo.name)
@@ -358,9 +391,12 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
+        # Remove GitHub Actions from the cloned repository for security
+        remove_github_actions(subtree_path)
+
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
+        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]} (GitHub Actions removed for security)"], cwd=repo_path, check=False)
         push_process = subprocess.run(["git", "push"], cwd=repo_path, check=False, capture_output=True, text=True)
 
         if push_process.returncode != 0:
@@ -421,6 +457,25 @@ def add_subtree(
         else:
             print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
             subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
+
+        # Before adding the Cyfrin subtree, check for and clean up any existing GitHub Actions from source repos
+        workflows_dir = os.path.join(repo_path, ".github", "workflows")
+        if os.path.exists(workflows_dir):
+            # Save main.yml from report-generator if it exists (we'll restore it later)
+            main_yml_path = os.path.join(workflows_dir, "main.yml")
+            main_yml_content = None
+            if os.path.exists(main_yml_path):
+                with open(main_yml_path, "r") as f:
+                    main_yml_content = f.read()
+
+            # Remove GitHub Actions from all source repos
+            remove_github_actions(repo_path)
+
+            # Restore main.yml if we saved it
+            if main_yml_content:
+                os.makedirs(workflows_dir, exist_ok=True)
+                with open(main_yml_path, "w") as f:
+                    f.write(main_yml_content)
 
         # Add the subtree to the repo
         authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
