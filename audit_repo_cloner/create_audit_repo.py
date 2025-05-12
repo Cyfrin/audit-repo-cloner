@@ -458,25 +458,6 @@ def add_subtree(
             print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
             subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
 
-        # Before adding the Cyfrin subtree, check for and clean up any existing GitHub Actions from source repos
-        workflows_dir = os.path.join(repo_path, ".github", "workflows")
-        if os.path.exists(workflows_dir):
-            # Save main.yml from report-generator if it exists (we'll restore it later)
-            main_yml_path = os.path.join(workflows_dir, "main.yml")
-            main_yml_content = None
-            if os.path.exists(main_yml_path):
-                with open(main_yml_path, "r") as f:
-                    main_yml_content = f.read()
-
-            # Remove GitHub Actions from all source repos
-            remove_github_actions(repo_path)
-
-            # Restore main.yml if we saved it
-            if main_yml_content:
-                os.makedirs(workflows_dir, exist_ok=True)
-                with open(main_yml_path, "w") as f:
-                    f.write(main_yml_content)
-
         # Add the subtree to the repo
         authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
         subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_path} {authenticated_subtree_url} {MAIN_BRANCH_NAME} --squash", shell=True, check=False, capture_output=True, text=True)
