@@ -93,12 +93,22 @@ To run the tests, especially integration tests, you'll need:
 
 ### Set Up Environment Variables
 
-Set up environment variables for the GitHub integration tests:
+Set up environment variables for the GitHub integration tests using one of these methods:
 
+1. **In your shell**:
 ```bash
 export TEST_GITHUB_TOKEN=your_github_token
 export TEST_GITHUB_ORG=your_organization_name
 ```
+
+2. **In a .env file**: Create one of these files at the repository root:
+```
+# .env, .env.test, or .env.local
+TEST_GITHUB_TOKEN=your_github_token
+TEST_GITHUB_ORG=your_organization_name
+```
+
+The tests will automatically check for environment files in the order: `.env`, `.env.test`, `.env.local`.
 
 ### Running Tests
 

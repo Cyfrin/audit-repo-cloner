@@ -19,7 +19,27 @@ TEST_GITHUB_TOKEN=your_github_token
 TEST_GITHUB_ORG=your_organization_name
 ```
 
-You can set these in your shell before running the tests, or you can use a `.env` file at the root of the repository.
+There are three ways to set these variables:
+
+1. **Environment Variables**: Set them directly in your shell:
+   ```bash
+   export TEST_GITHUB_TOKEN=your_github_token
+   export TEST_GITHUB_ORG=your_organization_name
+   ```
+
+2. **Using a .env file**: Create a `.env` file at the root of the repository:
+   ```
+   TEST_GITHUB_TOKEN=your_github_token
+   TEST_GITHUB_ORG=your_organization_name
+   ```
+
+3. **Using a specific testing .env file**: Create one of these files at the root:
+   ```
+   .env.test
+   .env.local
+   ```
+
+The tests will automatically check for these files in the order: `.env`, `.env.test`, `.env.local`.
 
 ## Running Tests
 

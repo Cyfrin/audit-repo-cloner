@@ -7,9 +7,35 @@ import shutil
 import tempfile
 import time
 import uuid
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from github import Github, GithubException
+
+
+# Load environment variables from .env file if present
+def load_env_files():
+    """Load environment variables from .env files."""
+    # First try to load from project root
+    root_dir = Path(__file__).resolve().parent.parent.parent
+
+    # Try loading from various env files in order of preference
+    env_files = [
+        root_dir / ".env",
+        root_dir / ".env.test",
+        root_dir / ".env.local",
+    ]
+
+    for env_file in env_files:
+        if env_file.exists():
+            load_dotenv(env_file)
+            print(f"Loaded environment from {env_file}")
+            break
+
+
+# Load environment variables before tests run
+load_env_files()
 
 
 def random_repo_name(prefix="test-"):
