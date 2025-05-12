@@ -1,0 +1,69 @@
+# Integration Tests
+
+This directory contains integration tests for the audit-repo-cloner tool.
+
+## Prerequisites
+
+To run the integration tests, you need:
+
+1. A GitHub account with access to an organization where you can create temporary repositories
+2. A GitHub personal access token with appropriate permissions (repo, workflow, delete_repo)
+3. Python with pytest installed
+
+## Environment Setup
+
+The integration tests require the following environment variables:
+
+```bash
+TEST_GITHUB_TOKEN=your_github_token
+TEST_GITHUB_ORG=your_organization_name
+```
+
+You can set these in your shell before running the tests, or you can use a `.env` file at the root of the repository.
+
+## Running Tests
+
+To run all tests:
+
+```bash
+pytest -xvs tests/
+```
+
+To run only the integration tests:
+
+```bash
+pytest -xvs tests/integration/
+```
+
+To run a specific test file:
+
+```bash
+pytest -xvs tests/integration/test_github_actions_removal.py
+```
+
+## Test Structure
+
+The integration tests are designed to:
+
+1. Create temporary GitHub repositories for testing
+2. Run the audit repo cloner on those repositories
+3. Verify the results
+4. Clean up all created repositories
+
+The tests utilize fixtures defined in `conftest.py` to set up and tear down the test environment.
+
+## Warning
+
+These tests create and delete real repositories in your GitHub organization. While they attempt to clean up after themselves, ensure you have the appropriate permissions and are using a testing organization, not your production environment.
+
+Also, note that the tests may take some time to run since they involve creating actual GitHub repositories and cloning them.
+
+## Notes for Contributors
+
+When adding new integration tests:
+
+1. Use the existing fixtures when possible
+2. Always ensure proper cleanup in a finally block
+3. Add appropriate assertions to verify the behavior
+4. Name test functions descriptively (e.g., `test_github_actions_removal`)
+5. Consider using parametrized tests for testing multiple variations

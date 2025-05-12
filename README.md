@@ -22,7 +22,7 @@ git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .  # Install from pyproject.toml
 ```
 
 2. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and add it to the `.env` file:
@@ -69,7 +69,7 @@ git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"  # Install with development dependencies
 ```
 
 2. Install pre-commit hooks:
@@ -77,3 +77,53 @@ pip install -r requirements.txt
 pre-commit install
 pre-commit run --all-files
 ```
+
+## Testing
+
+### Prerequisites
+
+To run the tests, especially integration tests, you'll need:
+
+- Python 3.8 or higher
+- A GitHub account with access to an organization where you can create test repositories
+- A GitHub personal access token with appropriate permissions:
+  - `repo` (full control of repositories)
+  - `workflow` (update GitHub Action workflows)
+  - `delete_repo` (for cleanup)
+
+### Set Up Environment Variables
+
+Set up environment variables for the GitHub integration tests:
+
+```bash
+export TEST_GITHUB_TOKEN=your_github_token
+export TEST_GITHUB_ORG=your_organization_name
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run only unit tests
+pytest tests/ -k "not integration"
+
+# Run only integration tests
+pytest tests/integration/
+
+# Run with coverage report
+pytest --cov=audit_repo_cloner
+```
+
+### Important Notes
+
+- **Repository Creation**: The integration tests create real GitHub repositories. Always use a test organization.
+- **Cleanup**: The tests attempt to clean up all created repositories, but you should verify this.
+- **Rate Limits**: Be aware of GitHub API rate limits when running many tests.
+
+For detailed information about the test suite structure and how to add new tests, see the [tests/README.md](tests/README.md) file.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
