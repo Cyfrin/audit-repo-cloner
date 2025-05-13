@@ -227,17 +227,12 @@ The source code for all audit target repositories has been merged into this repo
     branch_process = subprocess.run(["git", "branch", "--show-current"], cwd=repo_path, capture_output=True, text=True, check=False)
     current_branch = branch_process.stdout.strip() or MAIN_BRANCH_NAME
 
-    # Push to the current branch
-    push_result = subprocess.run(["git", "push", "-u", "origin", current_branch], cwd=repo_path, capture_output=True, text=True, check=False)
+    # Push the initial commit to set up the repository
+    push_process = subprocess.run(["git", "push", "-u", "origin", current_branch], cwd=repo_path, check=False, capture_output=True, text=True)
 
-    if push_result.returncode != 0:
-        log.error(f"Failed to push to {current_branch}: {push_result.stderr}")
-
-        # If failed and current branch is 'main', try 'master' instead
-        if current_branch == "main":
-            log.info("Attempting to push to 'master' branch instead...")
-            subprocess.run(["git", "branch", "-m", "main", "master"], cwd=repo_path, check=False)
-            subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
+    if push_process.returncode != 0:
+        log.warning(f"Failed to push initial commit: {push_process.stderr}")
+        log.info("Continuing anyway...")
 
 
 def merge_submodules(repo_path: str):
@@ -330,7 +325,7 @@ def merge_submodules(repo_path: str):
         try:
             subprocess.run(["git", "-C", repo_path, "add", ".gitmodules"], check=True)
             subprocess.run(["git", "-C", repo_path, "commit", "-m", "Update .gitmodules with all submodules"], check=True)
-            subprocess.run(["git", "-C", repo_path, "push"], check=True)
+            subprocess.run(["git", "-C", repo_path, "push", "origin", MAIN_BRANCH_NAME], check=True)
             log.info("Updated .gitmodules with all submodules")
         except subprocess.CalledProcessError as e:
             log.error(f"Failed to commit/push changes: {e}")
@@ -376,6 +371,9 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     # Add authentication token to the URL for private repositories
     authenticated_url = source_url.replace("https://", f"https://{github_token}@")
 
+    # Always use the authenticated URL for cloning
+    clean_url = authenticated_url
+
     url_parts = source_url.split("/")
     source_repo_name = url_parts[-1]
 
@@ -405,46 +403,123 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     # Normalize subtree_target for git commands (use forward slashes)
     git_subtree_target = subtree_target.replace("\\", "/")
 
+    # First, configure Git credential helper to store credentials temporarily
+    subprocess.run(["git", "config", "--global", "credential.helper", "store"], check=True)
+
+    # Create credentials file for Git (safer than including token in URL)
+    cred_file = os.path.expanduser("~/.git-credentials")
+    with open(cred_file, "a") as f:
+        f.write(f"https://{github_token}@github.com\n")
+
     try:
+        # First pull latest changes from the source repo to ensure it's accessible
+        print(f"Testing connection to source repository...")
+        ls_remote_cmd = ["git", "ls-remote", clean_url]
+        ls_remote_result = subprocess.run(ls_remote_cmd, cwd=repo_path, capture_output=True, text=True, check=False)
+
+        if ls_remote_result.returncode != 0:
+            print(f"Warning: Could not access repository at {source_url}")
+            print(f"Error: {ls_remote_result.stderr}")
+            raise Exception(f"Failed to access repository: {ls_remote_result.stderr}")
+
         # Add the subtree to the repo
-        subtree_cmd = f"git -C {repo_path} subtree add --prefix {git_subtree_target} {authenticated_url} {commit_hash}"
+        subtree_cmd = f"git -C {repo_path} subtree add --prefix {git_subtree_target} {clean_url} {commit_hash}"
+        print(f"Running subtree command...")
         subtree_result = subprocess.run(subtree_cmd, shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
             print(f"DEBUG: subtree command failed with returncode {subtree_result.returncode}")
             print(f"DEBUG: stderr = {subtree_result.stderr}")
             print(f"DEBUG: stdout = {subtree_result.stdout}")
-            raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
-        # Remove GitHub Actions from the cloned repository for security
-        remove_github_actions(subtree_path)
+            # Try fallback method with direct Git commands instead of subtree
+            print("Attempting fallback method - manual checkout and copy...")
+            temp_clone_dir = os.path.join(os.path.dirname(repo_path), f"temp_clone_{source_repo_name}")
+            os.makedirs(temp_clone_dir, exist_ok=True)
 
-        # Update parent repo
-        subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-        subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
-        push_process = subprocess.run(["git", "push"], cwd=repo_path, check=False, capture_output=True, text=True)
+            try:
+                # Clone the source repository
+                clone_cmd = ["git", "clone", clean_url, temp_clone_dir]
+                clone_result = subprocess.run(clone_cmd, check=False, capture_output=True, text=True)
 
-        if push_process.returncode != 0:
-            log.warning(f"Failed to push changes: {push_process.stderr}")
-            log.info("Continuing anyway...")
+                if clone_result.returncode != 0:
+                    print(f"Fallback clone failed: {clone_result.stderr}")
+                    raise Exception(f"Failed to clone repository: {clone_result.stderr}")
 
-        # Create tag in the main repo pointing to this commit
-        tag_name = f"{source_repo_name}-cyfrin-audit"
+                # Checkout the specific commit
+                checkout_cmd = ["git", "checkout", commit_hash]
+                checkout_result = subprocess.run(checkout_cmd, cwd=temp_clone_dir, check=False, capture_output=True, text=True)
+
+                if checkout_result.returncode != 0:
+                    print(f"Fallback checkout failed: {checkout_result.stderr}")
+                    raise Exception(f"Failed to checkout commit: {checkout_result.stderr}")
+
+                # Create the target directory
+                os.makedirs(subtree_path, exist_ok=True)
+
+                # Copy all files (excluding .git directory)
+                print(f"Copying files from {temp_clone_dir} to {subtree_path}")
+                for item in os.listdir(temp_clone_dir):
+                    if item != ".git":
+                        src = os.path.join(temp_clone_dir, item)
+                        dst = os.path.join(subtree_path, item)
+                        if os.path.isdir(src):
+                            shutil.copytree(src, dst, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(src, dst)
+
+                # Add the changes to git
+                subprocess.run(["git", "add", git_subtree_target], cwd=repo_path, check=False)
+                commit_msg = f"Add {source_repo_name} at commit {commit_hash} (manual fallback method)"
+                subprocess.run(["git", "commit", "-m", commit_msg], cwd=repo_path, check=False)
+
+                print("Successfully added source files with fallback method.")
+            finally:
+                # Clean up the temporary clone
+                shutil.rmtree(temp_clone_dir, ignore_errors=True)
+        else:
+            print("Subtree command succeeded!")
+
+    finally:
+        # Clean up credentials
         try:
-            tag = repo.create_git_tag(
-                tag=tag_name,
-                message=f"Cyfrin audit tag for {source_repo_name}",
-                object=repo.get_commits()[0].sha,
-                type="commit",
-            )
-            repo.create_git_ref(ref=f"refs/tags/{tag.tag}", sha=tag.sha)
-            print(f"Created tag {tag_name}")
-        except GithubException as e:
-            log.error(f"Error creating tag {tag_name}: {e}")
+            if os.path.exists(cred_file):
+                with open(cred_file, "r") as f:
+                    lines = f.readlines()
+                with open(cred_file, "w") as f:
+                    for line in lines:
+                        if github_token not in line:
+                            f.write(line)
+            # Reset credential helper
+            subprocess.run(["git", "config", "--global", "--unset", "credential.helper"], check=False)
+        except Exception as e:
+            print(f"Warning: Could not clean up git credentials: {e}")
 
-    except Exception as e:
-        log.error(f"Error adding subtree for {source_repo_name}: {e}")
-        log.warning("Continuing with the next repository...")
+    # Remove GitHub Actions from the cloned repository for security
+    remove_github_actions(subtree_path)
+
+    # Update parent repo
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
+    subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
+    push_process = subprocess.run(["git", "push", "origin", MAIN_BRANCH_NAME], cwd=repo_path, check=False, capture_output=True, text=True)
+
+    if push_process.returncode != 0:
+        log.warning(f"Failed to push changes: {push_process.stderr}")
+        log.info("Continuing anyway...")
+
+    # Create tag in the main repo pointing to this commit
+    tag_name = f"{source_repo_name}-cyfrin-audit"
+    try:
+        tag = repo.create_git_tag(
+            tag=tag_name,
+            message=f"Cyfrin audit tag for {source_repo_name}",
+            object=repo.get_commits()[0].sha,
+            type="commit",
+        )
+        repo.create_git_ref(ref=f"refs/tags/{tag.tag}", sha=tag.sha)
+        print(f"Created tag {tag_name}")
+    except GithubException as e:
+        log.error(f"Error creating tag {tag_name}: {e}")
 
 
 def prompt_for_token_and_org(github_token: str, organization: str):
@@ -485,16 +560,105 @@ def add_subtree(
 
         # Add the subtree to the repo
         authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
-        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_path} {authenticated_subtree_url} {MAIN_BRANCH_NAME} --squash", shell=True, check=False, capture_output=True, text=True)
 
-        if subtree_result.returncode != 0:
-            log.error(f"Error adding subtree: {subtree_result.stderr}")
-            raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
+        # Always use the authenticated URL
+        clean_url = authenticated_subtree_url
+
+        # Normalize subtree path for git commands (use forward slashes)
+        git_subtree_path = subtree_path.replace("\\", "/")
+
+        # First, configure Git credential helper to store credentials temporarily
+        subprocess.run(["git", "config", "--global", "credential.helper", "store"], check=True)
+
+        # Create credentials file for Git (safer than including token in URL)
+        cred_file = os.path.expanduser("~/.git-credentials")
+        with open(cred_file, "a") as f:
+            f.write(f"https://{github_token}@github.com\n")
+
+        try:
+            # First test if the repository is accessible
+            print(f"Testing connection to report template repository...")
+            ls_remote_cmd = ["git", "ls-remote", clean_url]
+            ls_remote_result = subprocess.run(ls_remote_cmd, cwd=repo_path, capture_output=True, text=True, check=False)
+
+            if ls_remote_result.returncode != 0:
+                print(f"Warning: Could not access repository at {SUBTREE_URL}")
+                print(f"Error: {ls_remote_result.stderr}")
+                raise Exception(f"Failed to access repository: {ls_remote_result.stderr}")
+
+            # Add the subtree to the repo
+            subtree_cmd = f"git -C {repo_path} subtree add --prefix {git_subtree_path} {clean_url} {MAIN_BRANCH_NAME} --squash"
+            print(f"Running subtree command...")
+            subtree_result = subprocess.run(subtree_cmd, shell=True, check=False, capture_output=True, text=True)
+
+            if subtree_result.returncode != 0:
+                print(f"DEBUG: subtree command failed with returncode {subtree_result.returncode}")
+                print(f"DEBUG: stderr = {subtree_result.stderr}")
+                print(f"DEBUG: stdout = {subtree_result.stdout}")
+
+                # Try fallback method with direct Git commands instead of subtree
+                print("Attempting fallback method - manual checkout and copy...")
+                temp_clone_dir = os.path.join(os.path.dirname(repo_path), f"temp_clone_{SUBTREE_NAME}")
+                os.makedirs(temp_clone_dir, exist_ok=True)
+
+                try:
+                    # Clone the source repository
+                    clone_cmd = ["git", "clone", clean_url, temp_clone_dir]
+                    clone_result = subprocess.run(clone_cmd, check=False, capture_output=True, text=True)
+
+                    if clone_result.returncode != 0:
+                        print(f"Fallback clone failed: {clone_result.stderr}")
+                        raise Exception(f"Failed to clone repository: {clone_result.stderr}")
+
+                    # Checkout the main branch
+                    checkout_cmd = ["git", "checkout", MAIN_BRANCH_NAME]
+                    checkout_result = subprocess.run(checkout_cmd, cwd=temp_clone_dir, check=False, capture_output=True, text=True)
+
+                    if checkout_result.returncode != 0:
+                        print(f"Fallback checkout failed: {checkout_result.stderr}")
+                        raise Exception(f"Failed to checkout branch: {checkout_result.stderr}")
+
+                    # Create the target directory
+                    os.makedirs(os.path.join(repo_path, git_subtree_path), exist_ok=True)
+
+                    # Copy all files (excluding .git directory)
+                    target_path = os.path.join(repo_path, git_subtree_path)
+                    print(f"Copying files from {temp_clone_dir} to {target_path}")
+                    for item in os.listdir(temp_clone_dir):
+                        if item != ".git":
+                            src = os.path.join(temp_clone_dir, item)
+                            dst = os.path.join(target_path, item)
+                            if os.path.isdir(src):
+                                shutil.copytree(src, dst, dirs_exist_ok=True)
+                            else:
+                                shutil.copy2(src, dst)
+
+                    print("Successfully added source files with fallback method.")
+                finally:
+                    # Clean up the temporary clone
+                    shutil.rmtree(temp_clone_dir, ignore_errors=True)
+            else:
+                print("Subtree command succeeded!")
+
+        finally:
+            # Clean up credentials
+            try:
+                if os.path.exists(cred_file):
+                    with open(cred_file, "r") as f:
+                        lines = f.readlines()
+                    with open(cred_file, "w") as f:
+                        for line in lines:
+                            if github_token not in line:
+                                f.write(line)
+                # Reset credential helper
+                subprocess.run(["git", "config", "--global", "--unset", "credential.helper"], check=False)
+            except Exception as e:
+                print(f"Warning: Could not clean up git credentials: {e}")
 
         # Move workflow file to the correct location
         os.makedirs(f"{repo_path}/.github/workflows", exist_ok=True)
         try:
-            source = os.path.join(repo_path, subtree_path, ".github", "workflows", "main.yml")
+            source = os.path.join(repo_path, git_subtree_path, ".github", "workflows", "main.yml")
             destination = os.path.join(repo_path, ".github", "workflows", "main.yml")
 
             if os.path.exists(source):
@@ -505,7 +669,7 @@ def add_subtree(
             log.warning(f"Error moving workflow file: {e}")
 
         # Update summary_information.conf
-        summary_path = f"{repo_path}/{subtree_path}/source/summary_information.conf"
+        summary_path = f"{repo_path}/{git_subtree_path}/source/summary_information.conf"
         if os.path.exists(summary_path):
             with open(summary_path, "r") as f:
                 summary_information = f.read()

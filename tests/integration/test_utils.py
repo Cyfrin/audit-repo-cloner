@@ -24,7 +24,7 @@ def normalize_path(path: str) -> str:
     return path.replace("\\", "/")
 
 
-def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str) -> str:
+def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str, full_clone: bool = False) -> str:
     """Clone a repository to a temporary directory and return the path."""
     # Add authentication to the URL for private repositories
     authenticated_url = repo_url.replace("https://", f"https://{github_token}@")
@@ -37,7 +37,12 @@ def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str) -> str:
     print(f"DEBUG: Will clone to path: {repo_path}")
 
     # Clone the repository
-    clone_result = subprocess.run(["git", "clone", authenticated_url, repo_path], capture_output=True, text=True, check=False)
+    clone_cmd = ["git", "clone"]
+    if not full_clone:
+        clone_cmd.append("--depth=1")
+    clone_cmd.extend([authenticated_url, repo_path])
+
+    clone_result = subprocess.run(clone_cmd, capture_output=True, text=True, check=False)
 
     if clone_result.returncode != 0:
         print(f"DEBUG: Clone failed with returncode {clone_result.returncode}")
@@ -45,6 +50,10 @@ def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str) -> str:
         print(f"DEBUG: stdout = {clone_result.stdout}")
     else:
         print(f"DEBUG: Clone succeeded to path {repo_path}")
+        # List available branches
+        print("DEBUG: Listing available branches:")
+        subprocess.run(["git", "branch", "-a"], cwd=repo_path, check=False)
+
         # List the contents to diagnose issues
         print("DEBUG: Contents of cloned repo:")
         try:
