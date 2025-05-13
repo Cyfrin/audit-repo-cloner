@@ -1,5 +1,8 @@
 """
 Integration tests for audit repository cloning functionality.
+This file contains all GitHub integration tests for the audit-repo-cloner tool.
+Tests include repository creation, GitHub Actions removal, multi-repository cloning,
+branch setup, and project board configuration.
 """
 import os
 import re

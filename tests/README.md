@@ -55,16 +55,10 @@ To run only the integration tests:
 pytest -xvs tests/integration/
 ```
 
-To run a specific test file:
+To run the GitHub integration tests:
 
 ```bash
-pytest -xvs tests/integration/test_github_actions_removal.py
-```
-
-To run the smart contract repository tests:
-
-```bash
-pytest -xvs tests/integration/test_smart_contract_repo_cloning.py
+pytest -xvs tests/integration/test_github_integration.py
 ```
 
 ## Utility Scripts
@@ -97,17 +91,21 @@ The integration tests are designed to:
 
 The tests utilize fixtures defined in `conftest.py` to set up and tear down the test environment.
 
-### Smart Contract Repository Tests
+### GitHub Integration Tests
 
-The `test_smart_contract_repo_cloning.py` file contains tests that specifically check the audit tool's functionality with smart contract repositories:
+The `test_github_integration.py` file contains all integration tests for the tool, including:
 
-1. `test_single_smart_contract_repo_cloning` - Tests cloning a single repository with Solidity contracts
-2. `test_multi_smart_contract_repo_cloning` - Tests cloning multiple repositories with Solidity contracts
-3. `test_branch_generation` - Verifies the creation of branches for auditors and the report
-4. `test_report_workflow_generation` - Checks that the report branch and workflows are properly set up
-5. `test_project_board_generation` - Validates the creation of the project board with the correct columns
+1. `test_single_repo_cloning` - Tests cloning a single repository with smart contract files
+2. `test_multi_repo_cloning` - Tests cloning multiple repositories
 
-These tests create sample Solidity contract files and Hardhat configurations to simulate real smart contract repositories.
+These tests verify:
+- GitHub Actions removal from source repositories
+- Smart contract file cloning
+- Branch creation for auditors and reports
+- Report workflow generation
+- Project board setup with the correct columns
+
+The tests create sample Solidity contract files to simulate real smart contract repositories.
 
 ## Warning
 
@@ -122,5 +120,5 @@ When adding new integration tests:
 1. Use the existing fixtures when possible
 2. Always ensure proper cleanup in a finally block
 3. Add appropriate assertions to verify the behavior
-4. Name test functions descriptively (e.g., `test_github_actions_removal`)
+4. Name test functions descriptively (e.g., `test_single_repo_cloning`)
 5. Consider using parametrized tests for testing multiple variations
