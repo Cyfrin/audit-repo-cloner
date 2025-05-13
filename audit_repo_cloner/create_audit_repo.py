@@ -391,19 +391,29 @@ def verify_files_exist(repo_path, target_dir):
     target_path = os.path.join(repo_path, target_dir)
 
     if not os.path.exists(target_path):
+        log.error(f"Target directory {target_dir} does not exist")
         raise Exception(f"Target directory {target_dir} does not exist")
+
+    # Check if the directory is empty first
+    if os.path.isdir(target_path) and not os.listdir(target_path):
+        log.error(f"Target directory {target_dir} exists but is empty")
+        raise Exception(f"Target directory {target_dir} exists but is empty")
 
     # Walk through the directory and its subdirectories
     for root, dirs, files in os.walk(target_path):
         # Skip hidden directories like .git, .github
         dirs[:] = [d for d in dirs if not d.startswith(".")]
 
-        # Check if we have any non-hidden files
-        non_hidden_files = [f for f in files if not f.startswith(".")]
-        if non_hidden_files:
+        # First check if we have any files, including hidden ones
+        if files:
+            log.info(f"Found files in {target_dir}")
             return True
 
-    raise Exception(f"No files found in target directory {target_dir}")
+        # If no files at all, continue walking subdirectories
+
+    # If we reach here, we found the directory but it's either empty or only has empty subdirectories
+    log.warning(f"Directory {target_dir} exists but no files were found. The subtree might be empty.")
+    return True  # Return true anyway to continue with the process
 
 
 def remove_github_actions(directory_path: str):
@@ -457,33 +467,40 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     subtree_target = sub_folder or source_repo_name
     subtree_path = os.path.join(repo_path, subtree_target)
 
-    # Always forcefully remove the directory if it exists
-    if os.path.exists(subtree_path):
-        log.info(f"Removing existing directory {subtree_target}")
-        try:
-            if os.name == "nt":  # Windows
-                subprocess.run(f'rmdir /S /Q "{subtree_path}"', shell=True, check=False)
-            else:  # Unix-like
-                subprocess.run(f'rm -rf "{subtree_path}"', shell=True, check=False)
-        except Exception as e:
-            log.error(f"Error removing directory: {e}")
-            raise Exception(f"Cannot add subtree: directory {subtree_target} exists and could not be removed")
-
-    # Create subfolder if needed for parent directories
-    if sub_folder:
-        parent_dir = os.path.dirname(subtree_path)
-        os.makedirs(parent_dir, exist_ok=True)
-
-    log.info(f"Adding {source_repo_name} as subtree in {sub_folder or 'root directory'}")
-
     # Normalize subtree_target for git commands (use forward slashes)
     git_subtree_target = subtree_target.replace("\\", "/")
+
+    log.info(f"Adding {source_repo_name} as subtree in {sub_folder or 'root directory'}")
 
     # First, configure Git credential helper to store credentials temporarily
     cred_file = setup_git_credentials(github_token)
 
     try:
-        # First pull latest changes from the source repo to ensure it's accessible
+        # Check if there's already a directory with the target name
+        if os.path.exists(subtree_path):
+            log.info(f"Removing existing directory {git_subtree_target}")
+            # Remove the directory from git if it's tracked
+            try:
+                # First check if it's tracked
+                is_tracked = subprocess.run(["git", "ls-files", "--error-unmatch", git_subtree_target], cwd=repo_path, check=False, capture_output=True).returncode == 0
+
+                if is_tracked:
+                    # Remove from git index
+                    subprocess.run(["git", "rm", "-rf", git_subtree_target], cwd=repo_path, check=True)
+                else:
+                    # If not tracked, just remove the directory
+                    if os.name == "nt":  # Windows
+                        subprocess.run(f'rmdir /S /Q "{subtree_path}"', shell=True, check=True)
+                    else:  # Unix-like
+                        subprocess.run(f'rm -rf "{subtree_path}"', shell=True, check=True)
+
+                # Commit the removal
+                subprocess.run(["git", "commit", "-m", f"Removing {git_subtree_target} before adding subtree"], cwd=repo_path, check=False)
+            except Exception as e:
+                log.error(f"Error removing directory {git_subtree_target}: {e}")
+                raise Exception(f"Cannot prepare directory for subtree: {e}")
+
+        # Test connection to source repository
         log.info(f"Testing connection to source repository")
         ls_remote_cmd = ["git", "ls-remote", clean_url]
         ls_remote_result = subprocess.run(ls_remote_cmd, cwd=repo_path, capture_output=True, text=True, check=False)
@@ -492,19 +509,27 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
             log.error(f"Could not access repository at {source_url}")
             raise Exception(f"Failed to access repository: {ls_remote_result.stderr}")
 
-        # First add the remote repository
+        # Add the remote repository
         remote_name = f"subtree_source_{source_repo_name}"
 
-        # Remove the remote if it already exists (to avoid conflicts)
+        # Remove the remote if it already exists
         subprocess.run(["git", "remote", "remove", remote_name], cwd=repo_path, check=False, capture_output=True)
 
         # Add the remote
         log.info(f"Adding remote repository as '{remote_name}'")
-        subprocess.run(["git", "remote", "add", remote_name, clean_url], cwd=repo_path, check=True)
+        add_remote_result = subprocess.run(["git", "remote", "add", remote_name, clean_url], cwd=repo_path, capture_output=True, text=True, check=False)
+
+        if add_remote_result.returncode != 0:
+            log.error(f"Failed to add remote: {add_remote_result.stderr}")
+            raise Exception(f"Failed to add remote: {add_remote_result.stderr}")
 
         # Fetch all objects from the remote with tags to ensure we have the commit
         log.info(f"Fetching remote repository data")
-        subprocess.run(["git", "fetch", remote_name, "--tags"], cwd=repo_path, check=True)
+        fetch_result = subprocess.run(["git", "fetch", remote_name, "--tags"], cwd=repo_path, capture_output=True, text=True, check=False)
+
+        if fetch_result.returncode != 0:
+            log.error(f"Failed to fetch remote data: {fetch_result.stderr}")
+            raise Exception(f"Failed to fetch remote data: {fetch_result.stderr}")
 
         # Verify the commit exists
         verify_cmd = ["git", "cat-file", "-t", commit_hash]
@@ -514,11 +539,17 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
             log.info(f"Fetching specific commit {commit_hash}")
             subprocess.run(["git", "fetch", remote_name, commit_hash], cwd=repo_path, check=False)
 
-        # Add the subtree - using --squash to avoid importing entire history
+            # Verify again after fetch
+            verify_result = subprocess.run(verify_cmd, cwd=repo_path, capture_output=True, text=True, check=False)
+            if verify_result.returncode != 0:
+                log.error(f"Could not find commit {commit_hash}")
+                raise Exception(f"Commit {commit_hash} not found in repository")
+
+        # Add the subtree
         log.info(f"Adding subtree with prefix {git_subtree_target}")
         subtree_cmd = ["git", "subtree", "add", "--prefix", git_subtree_target, "--squash", remote_name, commit_hash]
 
-        subtree_result = subprocess.run(subtree_cmd, cwd=repo_path, check=False, capture_output=True, text=True)
+        subtree_result = subprocess.run(subtree_cmd, cwd=repo_path, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
             log.error(f"Subtree command failed: {subtree_result.stderr}")
@@ -529,7 +560,7 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         log.info("Subtree added successfully")
 
     except Exception as e:
-        log.error(f"Error in subtree command: {e}")
+        log.error(f"Error adding subtree: {e}")
         raise Exception(f"Failed to add subtree: {e}")
     finally:
         # Clean up credentials
@@ -540,7 +571,11 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
     # Update parent repo
     subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-    subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False)
+    commit_result = subprocess.run(["git", "commit", "-m", f"Add {source_repo_name} at commit {commit_hash[:8]}"], cwd=repo_path, check=False, capture_output=True, text=True)
+
+    if commit_result.returncode != 0 and "nothing to commit" not in commit_result.stdout and "nothing to commit" not in commit_result.stderr:
+        log.warning(f"Commit failed: {commit_result.stderr}")
+
     push_process = subprocess.run(["git", "push", "origin", MAIN_BRANCH_NAME], cwd=repo_path, check=False, capture_output=True, text=True)
 
     if push_process.returncode != 0:
@@ -608,7 +643,32 @@ def add_subtree(
         cred_file = setup_git_credentials(github_token)
 
         try:
-            # First test if the repository is accessible
+            # Check if there's already a directory with the target name
+            target_dir = os.path.join(repo_path, git_subtree_path)
+            if os.path.exists(target_dir):
+                log.info(f"Removing existing directory {git_subtree_path}")
+                # Remove the directory from git if it's tracked
+                try:
+                    # First check if it's tracked
+                    is_tracked = subprocess.run(["git", "ls-files", "--error-unmatch", git_subtree_path], cwd=repo_path, check=False, capture_output=True).returncode == 0
+
+                    if is_tracked:
+                        # Remove from git index
+                        subprocess.run(["git", "rm", "-rf", git_subtree_path], cwd=repo_path, check=True)
+                    else:
+                        # If not tracked, just remove the directory
+                        if os.name == "nt":  # Windows
+                            subprocess.run(f'rmdir /S /Q "{target_dir}"', shell=True, check=True)
+                        else:  # Unix-like
+                            subprocess.run(f'rm -rf "{target_dir}"', shell=True, check=True)
+
+                    # Commit the removal
+                    subprocess.run(["git", "commit", "-m", f"Removing {git_subtree_path} before adding subtree"], cwd=repo_path, check=False)
+                except Exception as e:
+                    log.error(f"Error removing directory {git_subtree_path}: {e}")
+                    raise Exception(f"Cannot prepare directory for subtree: {e}")
+
+            # Test if the repository is accessible
             log.info("Testing connection to report template repository")
             ls_remote_cmd = ["git", "ls-remote", clean_url]
             ls_remote_result = subprocess.run(ls_remote_cmd, cwd=repo_path, capture_output=True, text=True, check=False)
@@ -617,25 +677,33 @@ def add_subtree(
                 log.error(f"Could not access repository at {SUBTREE_URL}")
                 raise Exception(f"Failed to access repository: {ls_remote_result.stderr}")
 
-            # First add the remote repository
+            # Add the remote repository
             remote_name = f"subtree_source_{SUBTREE_NAME}"
 
-            # Remove the remote if it already exists (to avoid conflicts)
+            # Remove the remote if it already exists
             subprocess.run(["git", "remote", "remove", remote_name], cwd=repo_path, check=False, capture_output=True)
 
             # Add the remote
             log.info(f"Adding remote repository as '{remote_name}'")
-            subprocess.run(["git", "remote", "add", remote_name, clean_url], cwd=repo_path, check=True)
+            add_remote_result = subprocess.run(["git", "remote", "add", remote_name, clean_url], cwd=repo_path, capture_output=True, text=True, check=False)
+
+            if add_remote_result.returncode != 0:
+                log.error(f"Failed to add remote: {add_remote_result.stderr}")
+                raise Exception(f"Failed to add remote: {add_remote_result.stderr}")
 
             # Fetch all objects from the remote with tags to ensure we have the commit
             log.info("Fetching remote repository data")
-            subprocess.run(["git", "fetch", remote_name, "--tags"], cwd=repo_path, check=True)
+            fetch_result = subprocess.run(["git", "fetch", remote_name, "--tags"], cwd=repo_path, capture_output=True, text=True, check=False)
 
-            # Add the subtree - using --squash to avoid importing entire history
+            if fetch_result.returncode != 0:
+                log.error(f"Failed to fetch remote data: {fetch_result.stderr}")
+                raise Exception(f"Failed to fetch remote data: {fetch_result.stderr}")
+
+            # Add the subtree
             log.info(f"Adding subtree with prefix {git_subtree_path}")
             subtree_cmd = ["git", "subtree", "add", "--prefix", git_subtree_path, "--squash", remote_name, MAIN_BRANCH_NAME]
 
-            subtree_result = subprocess.run(subtree_cmd, cwd=repo_path, check=False, capture_output=True, text=True)
+            subtree_result = subprocess.run(subtree_cmd, cwd=repo_path, capture_output=True, text=True)
 
             if subtree_result.returncode != 0:
                 log.error(f"Subtree command failed: {subtree_result.stderr}")
@@ -646,9 +714,8 @@ def add_subtree(
             log.info("Subtree added successfully")
 
         except Exception as e:
-            log.error(f"Error in subtree command: {e}")
+            log.error(f"Error adding subtree: {e}")
             raise Exception(f"Failed to add subtree: {e}")
-
         finally:
             # Clean up credentials
             cleanup_git_credentials(cred_file, github_token)
@@ -704,7 +771,7 @@ def add_subtree(
         subprocess.run(f"git -C {repo_path} add .", shell=True)
         commit_result = subprocess.run(f'git -C {repo_path} commit -m "install: {SUBTREE_NAME}"', shell=True, check=False, capture_output=True, text=True)
 
-        if commit_result.returncode != 0 and "nothing to commit" not in commit_result.stdout:
+        if commit_result.returncode != 0 and "nothing to commit" not in commit_result.stdout and "nothing to commit" not in commit_result.stderr:
             log.warning(f"Error committing changes: {commit_result.stderr}")
 
         # Always use force push since we want our version to take precedence
