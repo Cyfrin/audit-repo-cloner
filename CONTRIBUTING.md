@@ -8,11 +8,16 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-2. Install dependencies:
+2. Install the package in development mode:
 ```bash
-pip install -r requirements.txt
+# For basic development
 pip install -e .
+
+# For development with testing capabilities
+pip install -e ".[dev]"
 ```
+
+The project uses `pyproject.toml` to define all dependencies. All development tools and test dependencies are included in the `[dev]` extra.
 
 # Code Quality
 
@@ -31,6 +36,30 @@ pre-commit run --all-files
 Note: By default, `pre-commit run` without `--all-files` only checks staged files. If you see "no files to check", either:
 1. Stage your files with `git add .` before running pre-commit, or
 2. Use `pre-commit run --all-files` to check all files regardless of staging status
+
+# Testing
+
+This project has both unit tests and integration tests. The integration tests interact with real GitHub repositories:
+
+1. Set up environment variables for testing:
+```bash
+export TEST_GITHUB_TOKEN=your_github_token
+export TEST_GITHUB_ORG=your_organization_name
+```
+
+2. Run the tests:
+```bash
+# Run all tests
+pytest
+
+# Run only integration tests
+pytest tests/integration/
+
+# Run with verbose output
+pytest -xvs
+```
+
+For more details on testing, please refer to the Testing section in the [README.md](README.md) file.
 
 # Security Considerations
 
