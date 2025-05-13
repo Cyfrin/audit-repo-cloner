@@ -52,7 +52,7 @@ def test_single_repo_cloning(temp_github_repos):
 
     # Run the audit repo cloner
     print("Running the audit repo cloner...")
-    result = _create_audit_repo(config_path, github_token)
+    result = _create_audit_repo(config_path, github_token, org_name)
 
     assert result is True, "Audit repo creation should succeed"
 
@@ -206,7 +206,7 @@ def test_multi_repo_cloning(multi_repo_setup):
 
     # Run the audit repo cloner
     print("Running the audit repo cloner for multiple repositories...")
-    result = _create_audit_repo(config_path, github_token)
+    result = _create_audit_repo(config_path, github_token, org_name)
 
     assert result is True, "Audit repo creation should succeed"
 
