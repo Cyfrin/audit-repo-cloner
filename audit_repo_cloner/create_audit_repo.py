@@ -53,19 +53,44 @@ GITHUB_ACTIONS_PATHS = [
 
 def setup_git_credentials(github_token):
     """Configure Git credential helper to store credentials temporarily"""
-    subprocess.run(["git", "config", "--global", "credential.helper", "store"], check=True)
+    log.info("Setting up Git credentials...")
 
-    # Create credentials file for Git
-    cred_file = os.path.expanduser("~/.git-credentials")
-    with open(cred_file, "a") as f:
-        f.write(f"https://{github_token}@github.com\n")
+    # Configure git to use credentials
+    try:
+        # First try using the credential store
+        subprocess.run(["git", "config", "--global", "credential.helper", "store"], check=True, capture_output=True)
 
-    return cred_file
+        # Create credentials file for Git
+        cred_file = os.path.expanduser("~/.git-credentials")
+        with open(cred_file, "a") as f:
+            f.write(f"https://{github_token}@github.com\n")
+
+        # Also configure git to use the token directly in case credential store doesn't work
+        # This is particularly useful in CI environments
+        subprocess.run(["git", "config", "--global", "url.https://" + github_token + "@github.com/.insteadOf", "https://github.com/"], check=False, capture_output=True)
+
+        # Set Git identity for committing if not already set
+        name_result = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True, check=False)
+        if not name_result.stdout.strip():
+            subprocess.run(["git", "config", "--global", "user.name", "Cyfrin Bot"], check=False, capture_output=True)
+
+        email_result = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True, check=False)
+        if not email_result.stdout.strip():
+            subprocess.run(["git", "config", "--global", "user.email", "bot@cyfrin.io"], check=False, capture_output=True)
+
+        log.info("Git credentials set up successfully")
+        return cred_file
+    except Exception as e:
+        log.error(f"Error setting up Git credentials: {e}")
+        # Return a path anyway so cleanup doesn't crash
+        return os.path.expanduser("~/.git-credentials")
 
 
 def cleanup_git_credentials(cred_file, github_token):
     """Clean up Git credentials after use"""
+    log.info("Cleaning up Git credentials...")
     try:
+        # Remove the specific credential entry from the file
         if os.path.exists(cred_file):
             with open(cred_file, "r") as f:
                 lines = f.readlines()
@@ -73,10 +98,22 @@ def cleanup_git_credentials(cred_file, github_token):
                 for line in lines:
                     if github_token not in line:
                         f.write(line)
+            log.info(f"Cleaned up credentials in {cred_file}")
+
         # Reset credential helper
-        subprocess.run(["git", "config", "--global", "--unset", "credential.helper"], check=False)
+        subprocess.run(["git", "config", "--global", "--unset", "credential.helper"], check=False, capture_output=True)
+
+        # Remove the url.insteadOf configuration
+        try:
+            subprocess.run(["git", "config", "--global", "--unset", "url.https://" + github_token + "@github.com/.insteadOf"], check=False, capture_output=True)
+        except:
+            # This might fail if we didn't set it, which is fine
+            pass
+
+        log.info("Git credentials cleanup completed")
     except Exception as e:
-        print(f"Warning: Could not clean up git credentials: {e}")
+        log.error(f"Error cleaning up git credentials: {e}")
+        # Continue execution despite cleanup errors
 
 
 @click.command()
@@ -404,7 +441,7 @@ def verify_files_exist(repo_path, target_dir):
         # Skip hidden directories like .git, .github
         dirs[:] = [d for d in dirs if not d.startswith(".")]
 
-        # First check if we have any files, including hidden ones
+        # Check if we have any files, including hidden ones
         if files:
             log.info(f"Found files in {target_dir}")
             return True
@@ -549,14 +586,34 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         log.info(f"Adding subtree with prefix {git_subtree_target}")
         subtree_cmd = ["git", "subtree", "add", "--prefix", git_subtree_target, "--squash", remote_name, commit_hash]
 
+        log.info(f"Running command: {' '.join(subtree_cmd)}")
         subtree_result = subprocess.run(subtree_cmd, cwd=repo_path, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
-            log.error(f"Subtree command failed: {subtree_result.stderr}")
+            log.error(f"Subtree command failed with code {subtree_result.returncode}")
+            log.error(f"Command: {' '.join(subtree_cmd)}")
+            log.error(f"Working directory: {repo_path}")
+            log.error(f"Stdout: {subtree_result.stdout}")
+            log.error(f"Stderr: {subtree_result.stderr}")
+
+            # Additional diagnostics - check if the directory exists
+            if os.path.exists(os.path.join(repo_path, git_subtree_target)):
+                log.info(f"Directory {git_subtree_target} exists despite subtree command failure")
+            else:
+                log.error(f"Directory {git_subtree_target} does not exist after subtree command")
+
+            # Check the commit hash
+            try:
+                cat_file_result = subprocess.run(["git", "cat-file", "-t", commit_hash], cwd=repo_path, capture_output=True, text=True, check=False)
+                log.info(f"Commit hash check: {cat_file_result.stdout.strip() or cat_file_result.stderr.strip() or 'No output'}")
+            except Exception as cat_err:
+                log.error(f"Failed to check commit hash: {cat_err}")
+
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
         # Verify files were actually added
         verify_files_exist(repo_path, git_subtree_target)
+
         log.info("Subtree added successfully")
 
     except Exception as e:
@@ -711,6 +768,7 @@ def add_subtree(
 
             # Verify files were actually added
             verify_files_exist(repo_path, git_subtree_path)
+
             log.info("Subtree added successfully")
 
         except Exception as e:
