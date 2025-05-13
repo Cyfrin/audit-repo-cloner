@@ -18,6 +18,13 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "gql>=3.5.0",
+    "PyGithub>=1.58.1",
+    "python-dotenv>=1.0.0",
+    "PyYAML>=6.0",
+    "requests>=2.29.0",
+]
 
 [project.optional-dependencies]
 dev = [

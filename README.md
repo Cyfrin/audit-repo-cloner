@@ -16,13 +16,13 @@ A Python package to clone a repo and automatically prepare it for [Cyfrin](https
 
 ## Quick Start
 
-1. Install requirements:
+1. Install:
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
 python3 -m venv venv
 source venv/bin/activate
-pip install -e .  # Install from pyproject.toml
+pip install -e .  # Install from pyproject.toml with all dependencies
 ```
 
 2. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and add it to the `.env` file:
@@ -126,9 +126,29 @@ pytest tests/integration/
 pytest --cov=audit_repo_cloner
 ```
 
+### Test Structure
+
+The integration tests are designed to:
+
+1. Create temporary GitHub repositories for testing
+2. Run the audit repo cloner on those repositories
+3. Verify the results
+4. Clean up all created repositories
+
+The tests utilize fixtures defined in `conftest.py` to set up and tear down the test environment.
+
+#### GitHub Integration Tests
+
+The integration tests verify:
+- GitHub Actions removal from source repositories
+- Smart contract file cloning
+- Branch creation for auditors and reports
+- Report workflow generation
+- Project board setup with the correct columns
+
 ### Cleaning Up Test Repositories
 
-To clean up test repositories created during integration tests, you can use the cleanup script:
+To clean up test repositories created during integration tests, use the cleanup script:
 
 ```bash
 # Clean up test repos created in the last 3 hours (default)
@@ -141,14 +161,22 @@ python tests/cleanup_test_repos.py --hours 6
 python tests/cleanup_test_repos.py --dry-run
 ```
 
+The cleanup script will look for repositories matching patterns like `audit-repo-*`, `source-repo-*`, etc., and delete them if they were created within the specified time window.
+
 ### Important Notes
 
 - **Repository Creation**: The integration tests create real GitHub repositories. Always use a test organization.
 - **Cleanup**: The tests attempt to clean up all created repositories, but you should verify this.
 - **Rate Limits**: Be aware of GitHub API rate limits when running many tests.
-
-For detailed information about the test suite structure and how to add new tests, see the [tests/README.md](tests/README.md) file.
+- **Warning**: These tests create and delete real repositories in your GitHub organization. While they attempt to clean up after themselves, ensure you have the appropriate permissions and are using a testing organization, not your production environment.
 
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+When adding new integration tests:
+1. Use the existing fixtures when possible
+2. Always ensure proper cleanup in a finally block
+3. Add appropriate assertions to verify the behavior
+4. Name test functions descriptively (e.g., `test_single_repo_cloning`)
+5. Consider using parametrized tests for testing multiple variations
