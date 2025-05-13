@@ -33,9 +33,6 @@ def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str, full_clo
     repo_name = repo_url.split("/")[-1].replace(".git", "")
     repo_path = os.path.join(temp_dir, repo_name)
 
-    print(f"DEBUG: Cloning from {repo_url} (auth URL redacted)")
-    print(f"DEBUG: Will clone to path: {repo_path}")
-
     # Clone the repository
     clone_cmd = ["git", "clone"]
     if not full_clone:
@@ -45,23 +42,7 @@ def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str, full_clo
     clone_result = subprocess.run(clone_cmd, capture_output=True, text=True, check=False)
 
     if clone_result.returncode != 0:
-        print(f"DEBUG: Clone failed with returncode {clone_result.returncode}")
-        print(f"DEBUG: stderr = {clone_result.stderr}")
-        print(f"DEBUG: stdout = {clone_result.stdout}")
-    else:
-        print(f"DEBUG: Clone succeeded to path {repo_path}")
-        # List available branches
-        print("DEBUG: Listing available branches:")
-        subprocess.run(["git", "branch", "-a"], cwd=repo_path, check=False)
-
-        # List the contents to diagnose issues
-        print("DEBUG: Contents of cloned repo:")
-        try:
-            for root, dirs, files in os.walk(repo_path):
-                for file in files:
-                    print(f"  {os.path.join(root, file)}")
-        except Exception as e:
-            print(f"DEBUG: Error listing files: {e}")
+        print(f"ERROR: Clone failed: {clone_result.stderr.strip()}")
 
     return repo_path
 

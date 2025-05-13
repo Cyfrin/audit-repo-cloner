@@ -197,3 +197,59 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
         print(f"Error occurred while linking project to repo: {str(e)}")
 
     return project_node_id
+
+
+def verify_project_exists(github_token: str, organization: str, project_title: str) -> bool:
+    """
+    Check if a project with the given title exists in the organization
+
+    Args:
+        github_token (str): GitHub personal access token
+        organization (str): GitHub organization name
+        project_title (str): Title of the project to look for
+
+    Returns:
+        bool: True if project exists, False otherwise
+    """
+    try:
+        transport = RequestsHTTPTransport(
+            url="https://api.github.com/graphql",
+            headers={"Authorization": f"Bearer {github_token}"},
+            use_json=True,
+        )
+        client = Client(transport=transport, fetch_schema_from_transport=False)
+
+        # GraphQL query to get organization's projects
+        query = gql(
+            """
+            query GetOrgProjects($org: String!, $first: Int!) {
+                organization(login: $org) {
+                    projectsV2(first: $first) {
+                        nodes {
+                            id
+                            title
+                            shortDescription
+                        }
+                    }
+                }
+            }
+            """
+        )
+
+        # Variables for the query - get first 20 projects
+        variables = {"org": organization, "first": 20}
+
+        response = client.execute(query, variable_values=variables)
+
+        # Check if the project exists
+        for project in response.get("organization", {}).get("projectsV2", {}).get("nodes", []):
+            if project_title in project.get("title", ""):
+                print(f"Found project: {project['title']} (ID: {project['id']})")
+                return True
+
+        print(f"No project with title containing '{project_title}' found.")
+        return False
+
+    except Exception as e:
+        print(f"Error occurred while verifying project existence: {str(e)}")
+        return False

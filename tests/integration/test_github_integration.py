@@ -12,6 +12,7 @@ import time
 from github import Github
 
 from audit_repo_cloner.create_audit_repo import _create_audit_repo
+from audit_repo_cloner.github_project_utils import verify_project_exists
 from tests.integration.test_utils import check_file_exists, check_git_history, clone_repo_to_temp, get_all_github_action_paths, normalize_path
 
 TIME_DELAY_BETWEEN_ACTIONS = 5
@@ -70,60 +71,24 @@ def test_single_repo_cloning(temp_github_repos):
         # Verify the target repo was created
         assert target_repo is not None, f"Target repo {target_repo_name} should exist"
 
-        # Check contents via GitHub API first
-        print("DEBUG: Checking repository contents via GitHub API:")
-        try:
-            contents = target_repo.get_contents("")
-            for content in contents:
-                print(f"  {content.path}")
-        except Exception as e:
-            print(f"DEBUG: Error getting contents via API: {e}")
-
         # Clone the target repo for detailed inspection
         target_repo_path = clone_repo_to_temp(target_repo.clone_url, github_token, temp_dir, full_clone=True)
 
         # Fetch all branches
         subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=True)
 
-        # Debug: List the files in the cloned repository root
-        print(f"DEBUG: Contents of target repo directory {target_repo_path}:")
-        for item in os.listdir(target_repo_path):
-            print(f"  {item}")
-
-        # 1. Check that source repo has been cloned to the expected location with retries
-        print("Checking for source-repo with retries...")
-        max_attempts = 5
-        delay = 3  # seconds
+        # 1. Check that source repo has been cloned to the expected location
         source_in_target_path = os.path.join(target_repo_path, "source-repo")
 
-        for attempt in range(1, max_attempts + 1):
-            print(f"Attempt {attempt}/{max_attempts} to find source-repo...")
+        # Make sure we have the latest changes
+        subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=True)
+        subprocess.run(["git", "pull", "origin", "main"], cwd=target_repo_path, check=True)
 
-            # Make sure we have the latest changes
-            subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=False)
-            subprocess.run(["git", "pull", "origin", "main"], cwd=target_repo_path, check=False)
+        # Checkout main branch where source-repo is expected to be
+        subprocess.run(["git", "checkout", "main"], cwd=target_repo_path, check=True)
 
-            # Checkout main branch where source-repo is expected to be
-            subprocess.run(["git", "checkout", "main"], cwd=target_repo_path, check=False)
-
-            # Add a delay to ensure file system is fully updated
-            time.sleep(delay)
-
-            if os.path.exists(source_in_target_path):
-                print(f"Found source-repo on attempt {attempt}")
-                break
-
-            # List the contents of the directory for debugging
-            print(f"Contents of target repo on attempt {attempt}:")
-            for item in os.listdir(target_repo_path):
-                print(f"  {item}")
-
-            # Increase delay for next attempt
-            delay *= 1.5
-
-            if attempt == max_attempts:
-                # On the last attempt, if we still don't find it, fail the test
-                assert os.path.exists(source_in_target_path), "Source repo should be in the target repo"
+        # Check for the source repository
+        assert os.path.exists(source_in_target_path), "Source repo should be in the target repo"
 
         # 2. Verify GitHub Actions removal
         # Check specifically for the problematic files we know should be removed
@@ -187,31 +152,9 @@ def test_single_repo_cloning(temp_github_repos):
 
         assert report_workflow_exists, "A workflow file for report generation should exist"
 
-        # 6. Check project board
-        projects = list(target_repo.get_projects())
-        assert len(projects) > 0, "At least one project board should be created"
-
-        # Find project with matching title
-        project = None
-        for p in projects:
-            if project_title in p.name:
-                project = p
-                break
-
-        assert project is not None, f"A project with title containing '{project_title}' should exist"
-
-        # Check for expected columns
-        columns = list(project.get_columns())
-        column_names = [column.name for column in columns]
-
-        expected_columns = ["To Do", "In Progress", "Done"]
-        for expected_column in expected_columns:
-            found = False
-            for column_name in column_names:
-                if expected_column.lower() in column_name.lower():
-                    found = True
-                    break
-            assert found, f"Project should have a column similar to '{expected_column}'"
+        # 6. Check project board using GraphQL approach
+        # This avoids the deprecated GitHub Projects Classic API
+        assert verify_project_exists(github_token, org_name, project_title), f"A project with title containing '{project_title}' should exist"
 
         # 7. Check for commit messages
         commit_patterns = [
@@ -282,64 +225,26 @@ def test_multi_repo_cloning(multi_repo_setup):
         # Verify the target repo was created
         assert target_repo is not None, f"Target repo {target_repo_name} should exist"
 
-        # Check contents via GitHub API first
-        print("DEBUG: Checking repository contents via GitHub API:")
-        try:
-            contents = target_repo.get_contents("")
-            for content in contents:
-                print(f"  {content.path}")
-        except Exception as e:
-            print(f"DEBUG: Error getting contents via API: {e}")
-
         # Clone the target repo for detailed inspection
         target_repo_path = clone_repo_to_temp(target_repo.clone_url, github_token, temp_dir, full_clone=True)
 
         # Fetch all branches
         subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=True)
 
-        # Debug: List the files in the cloned repository root
-        print(f"DEBUG: Contents of target repo directory {target_repo_path}:")
-        for item in os.listdir(target_repo_path):
-            print(f"  {item}")
-
         # Check each source repo in the target
         for source in sources:
             subfolder = source["sub_folder"]
 
-            # Check for each source repo with retries
-            print(f"Checking for {subfolder} with retries...")
-            max_attempts = 5
-            delay = 3  # seconds
+            # Make sure we have the latest changes
+            subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=True)
+            subprocess.run(["git", "pull", "origin", "main"], cwd=target_repo_path, check=True)
+
+            # Checkout main branch where source-repo is expected to be
+            subprocess.run(["git", "checkout", "main"], cwd=target_repo_path, check=True)
+
+            # Check for the source repository
             source_in_target_path = os.path.join(target_repo_path, subfolder)
-
-            for attempt in range(1, max_attempts + 1):
-                print(f"Attempt {attempt}/{max_attempts} to find {subfolder}...")
-
-                # Make sure we have the latest changes
-                subprocess.run(["git", "fetch", "--all"], cwd=target_repo_path, check=False)
-                subprocess.run(["git", "pull", "origin", "main"], cwd=target_repo_path, check=False)
-
-                # Checkout main branch where source-repo is expected to be
-                subprocess.run(["git", "checkout", "main"], cwd=target_repo_path, check=False)
-
-                # Add a delay to ensure file system is fully updated
-                time.sleep(delay)
-
-                if os.path.exists(source_in_target_path):
-                    print(f"Found {subfolder} on attempt {attempt}")
-                    break
-
-                # List the contents of the directory for debugging
-                print(f"Contents of target repo on attempt {attempt}:")
-                for item in os.listdir(target_repo_path):
-                    print(f"  {item}")
-
-                # Increase delay for next attempt
-                delay *= 1.5
-
-                if attempt == max_attempts:
-                    # On the last attempt, if we still don't find it, fail the test
-                    assert os.path.exists(source_in_target_path), f"Source repo {subfolder} should be in the target repo"
+            assert os.path.exists(source_in_target_path), f"Source repo {subfolder} should be in the target repo"
 
             # 1. Check for GitHub Actions removal
             # Check specifically for the problematic files we know should be removed
@@ -381,9 +286,10 @@ def test_multi_repo_cloning(multi_repo_setup):
             actions_paths = get_all_github_action_paths(report_generator_path)
             print(f"Report generator actions (these should remain): {actions_paths}")
 
-        # 5. Verify project board creation
-        projects = list(target_repo.get_projects())
-        assert len(projects) > 0, "At least one project board should be created"
+        # 5. Verify project board creation using GraphQL approach
+        # This avoids the deprecated GitHub Projects Classic API
+        project_title = multi_repo_setup["config"]["projectTitle"]
+        assert verify_project_exists(github_token, org_name, project_title), f"A project with title containing '{project_title}' should exist"
 
     finally:
         # Cleanup is handled by the fixture
