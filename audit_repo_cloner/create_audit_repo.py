@@ -62,7 +62,26 @@ def create_audit_repo(
     Returns:
         None
     """
+    return _create_audit_repo(config_file, github_token, organization)
 
+
+def _create_audit_repo(
+    config_file: str = CONFIG_FILE,
+    github_token: str = None,
+    organization: str = None,
+):
+    """Core logic for cloning repositories and preparing them for a Cyfrin audit.
+
+    This function is separated from the CLI interface to allow for easy testing.
+
+    Args:
+        config_file (str): Path to the configuration file containing repository details.
+        github_token (str): The GitHub developer token to make API calls.
+        organization (str): The GitHub organization to create the audit repository in.
+
+    Returns:
+        bool: True if the operation was successful, False otherwise.
+    """
     if not os.path.exists(config_file):
         raise click.UsageError(f"Config file {config_file} not found. Please create one based on config.json.example.")
 
@@ -128,6 +147,7 @@ def create_audit_repo(
         set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, project_title)
 
     print("Done!")
+    return True
 
 
 def create_target_repo(github_token: str, organization: str, target_repo_name: str) -> Repository:
@@ -326,22 +346,20 @@ def remove_github_actions(directory_path: str):
     """
     log.info(f"Removing GitHub Actions from {directory_path}")
 
+    # Use glob to find all matching directories recursively
     for actions_path in GITHUB_ACTIONS_PATHS:
-        full_path = os.path.join(directory_path, actions_path)
-        if os.path.exists(full_path):
-            log.info(f"Removing GitHub Actions directory: {full_path}")
-            try:
-                if os.name == "nt":  # Windows
-                    subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
-                else:  # Unix-like
-                    subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
+        # Create a pattern to match both the root directory and all subdirectories
+        pattern = os.path.join(directory_path, "**", actions_path)
 
-                # Create a .gitkeep file to preserve the directory structure if needed
-                os.makedirs(full_path, exist_ok=True)
-                with open(os.path.join(full_path, ".gitkeep"), "w") as f:
-                    f.write("# GitHub Actions removed for security\n")
-            except Exception as e:
-                log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
+        # Find all matching directories
+        for full_path in glob.glob(pattern, recursive=True):
+            if os.path.exists(full_path):
+                log.info(f"Removing GitHub Actions directory: {full_path}")
+                try:
+                    # Use shutil.rmtree which works consistently across platforms
+                    shutil.rmtree(full_path)
+                except Exception as e:
+                    log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
 
 
 def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
@@ -384,11 +402,18 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
     print(f"Adding {source_repo_name} as subtree in {sub_folder or 'root directory'}...")
 
+    # Normalize subtree_target for git commands (use forward slashes)
+    git_subtree_target = subtree_target.replace("\\", "/")
+
     try:
         # Add the subtree to the repo
-        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash}", shell=True, check=False, capture_output=True, text=True)
+        subtree_cmd = f"git -C {repo_path} subtree add --prefix {git_subtree_target} {authenticated_url} {commit_hash}"
+        subtree_result = subprocess.run(subtree_cmd, shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
+            print(f"DEBUG: subtree command failed with returncode {subtree_result.returncode}")
+            print(f"DEBUG: stderr = {subtree_result.stderr}")
+            print(f"DEBUG: stdout = {subtree_result.stdout}")
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
         # Remove GitHub Actions from the cloned repository for security

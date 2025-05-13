@@ -4,6 +4,7 @@ Fixtures and utilities for GitHub-based integration tests.
 import json
 import os
 import shutil
+import stat
 import tempfile
 import time
 import uuid
@@ -12,6 +13,68 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 from github import Github, GithubException
+
+
+def handle_remove_readonly(func, path, exc):
+    """Handle read-only files when removing directories, particularly on Windows."""
+    excvalue = exc[1]
+    if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == 13:  # Permission denied
+        try:
+            os.chmod(path, stat.S_IWRITE | stat.S_IEXEC)
+            func(path)
+        except Exception as e:
+            print(f"Failed to handle read-only file {path}: {e}")
+    else:
+        raise exc[1]
+
+
+def force_delete(path):
+    """Force delete a file or directory, even if it's read-only or locked."""
+    if not os.path.exists(path):
+        return
+
+    if os.path.isfile(path):
+        try:
+            os.chmod(path, stat.S_IWRITE | stat.S_IEXEC)
+            os.unlink(path)
+        except Exception as e:
+            print(f"Failed to remove file {path}: {e}")
+    else:
+        try:
+            # Try to use rmtree first
+            shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
+        except Exception as e:
+            print(f"Failed to remove directory using rmtree {path}: {e}")
+
+            # If that fails, try a more aggressive approach
+            try:
+                # On Windows, try to use cmd to force delete
+                if os.name == "nt":
+                    os.system(f'rmdir /S /Q "{path}"')
+                else:
+                    os.system(f'rm -rf "{path}"')
+            except Exception as e:
+                print(f"Failed to force remove directory {path}: {e}")
+
+                # As a last resort, try removing files one by one
+                try:
+                    for root, dirs, files in os.walk(path, topdown=False):
+                        for name in files:
+                            full_path = os.path.join(root, name)
+                            try:
+                                os.chmod(full_path, stat.S_IWRITE | stat.S_IEXEC)
+                                os.unlink(full_path)
+                            except Exception as e:
+                                print(f"Failed to remove file {full_path}: {e}")
+                        for name in dirs:
+                            full_path = os.path.join(root, name)
+                            try:
+                                os.chmod(full_path, stat.S_IWRITE | stat.S_IEXEC)
+                                os.rmdir(full_path)
+                            except Exception as e:
+                                print(f"Failed to remove directory {full_path}: {e}")
+                except Exception as e:
+                    print(f"Failed during individual file cleanup of {path}: {e}")
 
 
 # Load environment variables from .env file if present
@@ -50,7 +113,10 @@ def github_client():
     if not github_token:
         pytest.skip("TEST_GITHUB_TOKEN environment variable not set")
 
-    return Github(github_token)
+    # Create GitHub client with verbose logging
+    g = Github(github_token)
+    print("DEBUG: Created GitHub client")
+    return g
 
 
 @pytest.fixture
@@ -103,8 +169,27 @@ jobs:
         # Add an actions workflow in a non-standard location
         source_repo.create_file(".github/actions/custom-action/action.yml", "Add custom action", "name: 'Custom Action'\nruns:\n  using: 'composite'\n  steps:\n    - run: echo 'Custom action'")
 
-        # Add some code to the source repo
-        source_repo.create_file("test.py", "Add test file", "print('Hello, world!')")
+        # Add a README file instead of a Python file
+        source_repo.create_file("README.md", "Add README", "# Test Repository\nThis is a test repository for integration testing.")
+
+        # Add Solidity smart contract files for testing
+        solidity_code = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract SimpleStorage {
+    uint256 private value;
+
+    function store(uint256 _value) public {
+        value = _value;
+    }
+
+    function retrieve() public view returns (uint256) {
+        return value;
+    }
+}
+"""
+        source_repo.create_file("contracts/SimpleStorage.sol", "Add SimpleStorage contract", solidity_code)
 
         # Get the latest commit hash
         commit_hash = source_repo.get_commits()[0].sha
@@ -139,11 +224,12 @@ jobs:
 
         # Remove temporary directories
         for temp_dir in temp_dirs:
-            try:
-                if os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir)
-            except Exception as e:
-                print(f"Error removing temporary directory {temp_dir}: {e}")
+            if os.path.exists(temp_dir):
+                print(f"Removing temporary directory: {temp_dir}")
+                try:
+                    force_delete(temp_dir)
+                except Exception as e:
+                    print(f"Error removing temporary directory {temp_dir}: {e}")
 
 
 @pytest.fixture
@@ -185,8 +271,27 @@ jobs:
 """
             repo.create_file(".github/workflows/test.yml", "Add test workflow", workflow_content)
 
-            # Add some code to the source repo
-            repo.create_file(f"test{i}.py", "Add test file", f"print('Hello from repo {i}!')")
+            # Add a README file instead of a Python file
+            repo.create_file(f"README.md", "Add README", f"# Test Repository {i}\nThis is a test repository {i} for integration testing.")
+
+            # Add Solidity smart contract files for testing
+            solidity_code = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract SimpleStorage {
+    uint256 private value;
+
+    function store(uint256 _value) public {
+        value = _value;
+    }
+
+    function retrieve() public view returns (uint256) {
+        return value;
+    }
+}
+"""
+            repo.create_file("contracts/SimpleStorage.sol", "Add SimpleStorage contract", solidity_code)
 
             # Get the latest commit hash
             commit_hash = repo.get_commits()[0].sha
@@ -223,8 +328,9 @@ jobs:
 
         # Remove temporary directories
         for temp_dir in temp_dirs:
-            try:
-                if os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir)
-            except Exception as e:
-                print(f"Error removing temporary directory {temp_dir}: {e}")
+            if os.path.exists(temp_dir):
+                print(f"Removing temporary directory: {temp_dir}")
+                try:
+                    force_delete(temp_dir)
+                except Exception as e:
+                    print(f"Error removing temporary directory {temp_dir}: {e}")

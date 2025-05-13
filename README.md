@@ -126,6 +126,21 @@ pytest tests/integration/
 pytest --cov=audit_repo_cloner
 ```
 
+### Cleaning Up Test Repositories
+
+To clean up test repositories created during integration tests, you can use the cleanup script:
+
+```bash
+# Clean up test repos created in the last 3 hours (default)
+python tests/cleanup_test_repos.py
+
+# Clean up test repos created in the last 6 hours
+python tests/cleanup_test_repos.py --hours 6
+
+# Dry run mode (show what would be deleted without actually deleting)
+python tests/cleanup_test_repos.py --dry-run
+```
+
 ### Important Notes
 
 - **Repository Creation**: The integration tests create real GitHub repositories. Always use a test organization.

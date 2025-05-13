@@ -61,6 +61,31 @@ To run a specific test file:
 pytest -xvs tests/integration/test_github_actions_removal.py
 ```
 
+To run the smart contract repository tests:
+
+```bash
+pytest -xvs tests/integration/test_smart_contract_repo_cloning.py
+```
+
+## Utility Scripts
+
+### Cleanup Test Repositories
+
+This directory contains a utility script to clean up stale test repositories that might have been created during test runs:
+
+```bash
+# Clean up test repos created in the last 3 hours (default)
+python tests/cleanup_test_repos.py
+
+# Clean up test repos created in the last 6 hours
+python tests/cleanup_test_repos.py --hours 6
+
+# Dry run mode (show what would be deleted without actually deleting)
+python tests/cleanup_test_repos.py --dry-run
+```
+
+The cleanup script will look for repositories matching patterns like `audit-repo-*`, `source-repo-*`, etc., and delete them if they were created within the specified time window.
+
 ## Test Structure
 
 The integration tests are designed to:
@@ -71,6 +96,18 @@ The integration tests are designed to:
 4. Clean up all created repositories
 
 The tests utilize fixtures defined in `conftest.py` to set up and tear down the test environment.
+
+### Smart Contract Repository Tests
+
+The `test_smart_contract_repo_cloning.py` file contains tests that specifically check the audit tool's functionality with smart contract repositories:
+
+1. `test_single_smart_contract_repo_cloning` - Tests cloning a single repository with Solidity contracts
+2. `test_multi_smart_contract_repo_cloning` - Tests cloning multiple repositories with Solidity contracts
+3. `test_branch_generation` - Verifies the creation of branches for auditors and the report
+4. `test_report_workflow_generation` - Checks that the report branch and workflows are properly set up
+5. `test_project_board_generation` - Validates the creation of the project board with the correct columns
+
+These tests create sample Solidity contract files and Hardhat configurations to simulate real smart contract repositories.
 
 ## Warning
 

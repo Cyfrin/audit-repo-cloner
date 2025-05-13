@@ -18,6 +18,12 @@ def check_file_exists(repo: Repository, path: str) -> bool:
         return False
 
 
+def normalize_path(path: str) -> str:
+    """Normalize path for consistent handling across OS platforms."""
+    # Git always uses forward slashes, so ensure paths are using forward slashes
+    return path.replace("\\", "/")
+
+
 def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str) -> str:
     """Clone a repository to a temporary directory and return the path."""
     # Add authentication to the URL for private repositories
@@ -27,8 +33,26 @@ def clone_repo_to_temp(repo_url: str, github_token: str, temp_dir: str) -> str:
     repo_name = repo_url.split("/")[-1].replace(".git", "")
     repo_path = os.path.join(temp_dir, repo_name)
 
+    print(f"DEBUG: Cloning from {repo_url} (auth URL redacted)")
+    print(f"DEBUG: Will clone to path: {repo_path}")
+
     # Clone the repository
-    subprocess.run(["git", "clone", authenticated_url, repo_path], check=True)
+    clone_result = subprocess.run(["git", "clone", authenticated_url, repo_path], capture_output=True, text=True, check=False)
+
+    if clone_result.returncode != 0:
+        print(f"DEBUG: Clone failed with returncode {clone_result.returncode}")
+        print(f"DEBUG: stderr = {clone_result.stderr}")
+        print(f"DEBUG: stdout = {clone_result.stdout}")
+    else:
+        print(f"DEBUG: Clone succeeded to path {repo_path}")
+        # List the contents to diagnose issues
+        print("DEBUG: Contents of cloned repo:")
+        try:
+            for root, dirs, files in os.walk(repo_path):
+                for file in files:
+                    print(f"  {os.path.join(root, file)}")
+        except Exception as e:
+            print(f"DEBUG: Error listing files: {e}")
 
     return repo_path
 
