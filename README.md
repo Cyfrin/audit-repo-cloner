@@ -16,26 +16,29 @@ A Python package to clone a repo and automatically prepare it for [Cyfrin](https
 
 ## Quick Start
 
-1. Install requirements:
+1. Install UV (if not already installed):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+2. Clone and install:
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
-2. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and add it to the `.env` file:
+3. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and add it to the `.env` file:
 ```bash
 cp .env.example .env
 ```
 
-3. Create a `config.json` file:
+4. Create a `config.json` file:
 ```bash
 cp config.json.example config.json
 ```
 
-4. Edit `config.json` with your repository details:
+5. Edit `config.json` with your repository details:
 ```json
 {
   "targetRepoName": "audit-2024-05-myproject",
@@ -51,14 +54,14 @@ cp config.json.example config.json
 }
 ```
 
-5. Run the tool:
+6. Run the tool:
 ```bash
 # specifying github token and organization in the cmd
-python -m audit_repo_cloner.create_audit_repo --config-file config.json --github-token YOUR_TOKEN --organization YOUR_ORG
+uv run python -m audit_repo_cloner.create_audit_repo --config-file config.json --github-token YOUR_TOKEN --organization YOUR_ORG
 # using .env file for github token and org
-python -m audit_repo_cloner.create_audit_repo --config-file config.json
+uv run python -m audit_repo_cloner.create_audit_repo --config-file config.json
 # if config file is not specified, config.json is used by default
-python -m audit_repo_cloner.create_audit_repo
+uv run python -m audit_repo_cloner.create_audit_repo
 ```
 
 ## Development
@@ -67,13 +70,11 @@ python -m audit_repo_cloner.create_audit_repo
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync --group dev
 ```
 
 2. Install pre-commit hooks:
 ```bash
-pre-commit install
-pre-commit run --all-files
+uv run pre-commit install
+uv run pre-commit run --all-files
 ```
