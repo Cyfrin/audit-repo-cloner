@@ -1,1 +1,1 @@
-python3 -m audit_repo_cloner.create_audit_repo
+uv run python3 -m audit_repo_cloner.create_audit_repo
