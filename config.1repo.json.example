@@ -1,0 +1,11 @@
+{
+  "targetRepoName": "audit-2026-02-myproject",
+  "projectTitle": "[Audit] My Project (2026-02)",
+  "auditors": "auditor1 auditor2 auditor3",
+  "repositories": [
+    {
+      "sourceUrl": "https://github.com/username/main-repo",
+      "commitHash": "abcdef1234567890abcdef1234567890abcdef12"
+    }
+  ]
+}

@@ -97,6 +97,9 @@ def create_audit_repo(
         repo_path = os.path.join(temp_dir, target_repo_name)
 
         # Process each repository
+        # When there's only one repository and no explicit subFolder, clone directly to root
+        is_single_repo = len(repositories) == 1
+
         for repo_config in repositories:
             source_url = repo_config.get("sourceUrl")
             commit_hash = repo_config.get("commitHash")
@@ -106,7 +109,9 @@ def create_audit_repo(
                 log.warning(f"Skipping repository with missing sourceUrl or commitHash: {repo_config}")
                 continue
 
-            clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder)
+            # Clone to root only if: single repo AND no explicit subFolder specified
+            clone_to_root = is_single_repo and not sub_folder
+            clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder, clone_to_root)
 
         # Merge all submodules after all subtrees are added
         merge_submodules(repo_path)
@@ -344,8 +349,13 @@ def remove_github_actions(directory_path: str):
                 log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
 
 
-def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str):
-    """Clone a source repository and merge it into the target repo using git subtree"""
+def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str, clone_to_root: bool = False):
+    """Clone a source repository and merge it into the target repo using git subtree
+
+    Args:
+        clone_to_root: If True, clone the repo contents directly to the root directory
+                       instead of a subfolder. Only used when there's a single repository.
+    """
     repo_path = os.path.join(temp_dir, repo.name)
 
     # Clean source URL
@@ -362,7 +372,14 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     source_repo_name = url_parts[-1]
 
     # Get the target path for the subtree
-    subtree_target = sub_folder or source_repo_name
+    # When clone_to_root is True, we use a temporary folder and then move contents to root
+    if clone_to_root:
+        subtree_target = "_temp_subtree_clone"
+        print(f"Adding {source_repo_name} directly to root directory...")
+    else:
+        subtree_target = sub_folder or source_repo_name
+        print(f"Adding {source_repo_name} as subtree in {subtree_target}...")
+
     subtree_path = os.path.join(repo_path, subtree_target)
 
     # Always forcefully remove the directory if it exists
@@ -378,11 +395,9 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
             raise Exception(f"Cannot add subtree: directory {subtree_target} exists and could not be removed")
 
     # Create subfolder if needed for parent directories
-    if sub_folder:
+    if sub_folder and not clone_to_root:
         parent_dir = os.path.dirname(subtree_path)
         os.makedirs(parent_dir, exist_ok=True)
-
-    print(f"Adding {source_repo_name} as subtree in {sub_folder or 'root directory'}...")
 
     try:
         # Add the subtree to the repo
@@ -391,8 +406,37 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
+        # If cloning to root, move all contents from temp folder to root
+        if clone_to_root:
+            log.info("Moving contents from temp folder to root...")
+            # Get all items in the temp subtree folder
+            items = os.listdir(subtree_path)
+            for item in items:
+                src = os.path.join(subtree_target, item)
+                dst = item
+                # Check if destination already exists (like README.md)
+                dst_path = os.path.join(repo_path, dst)
+                if os.path.exists(dst_path):
+                    log.info(f"Removing existing {dst} to replace with source repo version")
+                    subprocess.run(["git", "-C", repo_path, "rm", "-rf", dst], check=False, capture_output=True)
+                # Move using git mv to preserve history
+                subprocess.run(["git", "-C", repo_path, "mv", src, dst], check=False, capture_output=True)
+
+            # Remove the now-empty temp folder
+            if os.path.exists(subtree_path) and not os.listdir(subtree_path):
+                os.rmdir(subtree_path)
+
+            # Commit the move
+            subprocess.run(["git", "-C", repo_path, "add", "."], check=False)
+            subprocess.run(["git", "-C", repo_path, "commit", "-m", f"Move {source_repo_name} contents to root"], check=False)
+
+            # Update subtree_path to root for GitHub actions removal
+            actions_removal_path = repo_path
+        else:
+            actions_removal_path = subtree_path
+
         # Remove GitHub Actions from the cloned repository for security
-        remove_github_actions(subtree_path)
+        remove_github_actions(actions_removal_path)
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
