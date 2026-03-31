@@ -1,0 +1,12 @@
+{
+  "targetRepoName": "audit-2026-04-myproject",
+  "projectTitle": "[Audit] My Project (2026-04)",
+  "auditors": "auditor1 auditor2 auditor3",
+  "repositories": [
+    {
+      "sourceUrl": "https://gitlab.com/group/subgroup/protocol-repo",
+      "commitHash": "abcdef1234567890abcdef1234567890abcdef12",
+      "sourceType": "gitlab"
+    }
+  ]
+}

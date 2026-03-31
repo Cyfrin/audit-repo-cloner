@@ -1,6 +1,6 @@
 __title__ = "audit_repo_cloner"
 __description__ = "Python CLI for cloning a repo and preparing it for audit report generation."
-__version__ = "0.2.2"
+__version__ = "0.4.0"
 __author__ = "Cyfrin"
 __license__ = "MIT"
 __copyright__ = "Copyright 2023 Cyfrin"

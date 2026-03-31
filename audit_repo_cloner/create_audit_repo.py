@@ -17,6 +17,7 @@ from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
 from audit_repo_cloner.github_project_utils import clone_project
+from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_authenticated_url, sanitize_url, validate_tokens_for_repos
 
 # Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
@@ -31,13 +32,6 @@ SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 CONFIG_FILE = "config.json"
 
-# GitHub Actions related paths
-GITHUB_ACTIONS_PATHS = [
-    ".github/workflows",
-    ".github/actions",
-    ".github/action",
-]
-
 
 @click.command()
 @click.version_option(
@@ -47,10 +41,14 @@ GITHUB_ACTIONS_PATHS = [
 @click.option("--config-file", help="Path to config.json file.", default=CONFIG_FILE)
 @click.option("--github-token", help="Your GitHub developer token to make API calls.", default=os.getenv("GITHUB_ACCESS_TOKEN"))
 @click.option("--organization", help="Your GitHub organization name in which to clone the repo.", default=os.getenv("GITHUB_ORGANIZATION"))
+@click.option("--gitlab-token", help="Your GitLab token for cloning private GitLab source repos.", default=os.getenv("GITLAB_ACCESS_TOKEN"))
+@click.option("--gitlab-hosts", help="Comma-separated list of additional GitLab hostnames.", default=os.getenv("GITLAB_HOSTS"))
 def create_audit_repo(
     config_file: str = CONFIG_FILE,
     github_token: str = None,
     organization: str = None,
+    gitlab_token: str = None,
+    gitlab_hosts: str = None,
 ):
     """This function clones multiple repositories and prepares them for a Cyfrin audit using the provided configuration.
 
@@ -85,6 +83,14 @@ def create_audit_repo(
     if not github_token or not organization:
         raise click.UsageError("GitHub token and organization must be provided either through environment variables or as options.")
 
+    # Resolve GitLab token from .env (load_dotenv already called by prompt_for_token_and_org)
+    if not gitlab_token:
+        gitlab_token = os.getenv("GITLAB_ACCESS_TOKEN")
+    extra_gitlab_hosts = [h.strip() for h in (gitlab_hosts or "").split(",") if h.strip()]
+
+    # Validate tokens for all source repos before creating the target repo
+    validate_tokens_for_repos(repositories, github_token, gitlab_token, extra_gitlab_hosts)
+
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
@@ -104,6 +110,7 @@ def create_audit_repo(
             source_url = repo_config.get("sourceUrl")
             commit_hash = repo_config.get("commitHash")
             sub_folder = repo_config.get("subFolder", "")
+            source_type_override = repo_config.get("sourceType")
 
             if not source_url or not commit_hash:
                 log.warning(f"Skipping repository with missing sourceUrl or commitHash: {repo_config}")
@@ -111,7 +118,7 @@ def create_audit_repo(
 
             # Clone to root only if: single repo AND no explicit subFolder specified
             clone_to_root = is_single_repo and not sub_folder
-            clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder, clone_to_root)
+            clone_source_repo_as_subtree(repo, temp_dir, github_token, gitlab_token, extra_gitlab_hosts, source_url, commit_hash, sub_folder, clone_to_root, source_type_override)
 
         # Merge all submodules after all subtrees are added
         merge_submodules(repo_path)
@@ -184,8 +191,7 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
 
     # Create README.md
     with open(os.path.join(repo_path, "README.md"), "w") as f:
-        f.write(
-            f"""# {target_repo_name}
+        f.write(f"""# {target_repo_name}
 
 ## Getting Started
 Clone the repository:
@@ -194,8 +200,7 @@ Clone the repository:
 git clone --recurse-submodules [repository-url]
 ```
 The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
-            """
-        )
+            """)
 
     # Configure git
     subprocess.run(["git", "config", "user.name", "Cyfrin Bot"], cwd=repo_path, check=False)
@@ -323,50 +328,52 @@ def merge_submodules(repo_path: str):
         log.warning("No submodule configurations found to write")
 
 
-def remove_github_actions(directory_path: str):
-    """Remove GitHub Actions directories from cloned repositories for security.
+def remove_source_ci(directory_path: str):
+    """Remove CI/CD configuration from cloned source repositories for security.
 
-    This prevents any potential security breaches from executing actions
-    from the original repositories.
+    Removes both GitHub Actions and GitLab CI artifacts regardless of source platform,
+    since a migrated repo could have both.
     """
-    log.info(f"Removing GitHub Actions from {directory_path}")
+    log.info(f"Removing CI configuration from {directory_path}")
 
-    for actions_path in GITHUB_ACTIONS_PATHS:
-        full_path = os.path.join(directory_path, actions_path)
+    for ci_path in ALL_CI_PATHS:
+        full_path = os.path.join(directory_path, ci_path)
         if os.path.exists(full_path):
-            log.info(f"Removing GitHub Actions directory: {full_path}")
+            log.info(f"Removing CI artifact: {full_path}")
             try:
-                if os.name == "nt":  # Windows
-                    subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
-                else:  # Unix-like
-                    subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
+                if os.path.isfile(full_path):
+                    os.remove(full_path)
+                elif os.path.isdir(full_path):
+                    if os.name == "nt":  # Windows
+                        subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
+                    else:  # Unix-like
+                        subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
 
-                # Create a .gitkeep file to preserve the directory structure if needed
-                os.makedirs(full_path, exist_ok=True)
-                with open(os.path.join(full_path, ".gitkeep"), "w") as f:
-                    f.write("# GitHub Actions removed for security\n")
+                    # Create a .gitkeep file to preserve the directory structure
+                    os.makedirs(full_path, exist_ok=True)
+                    with open(os.path.join(full_path, ".gitkeep"), "w") as f:
+                        f.write("# CI configuration removed for security\n")
             except Exception as e:
-                log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
+                log.error(f"Error removing CI artifact {full_path}: {e}")
 
 
-def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str, clone_to_root: bool = False):
+def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, gitlab_token: str, extra_gitlab_hosts: List[str], source_url: str, commit_hash: str, sub_folder: str, clone_to_root: bool = False, source_type_override: str = None):
     """Clone a source repository and merge it into the target repo using git subtree
 
     Args:
         clone_to_root: If True, clone the repo contents directly to the root directory
                        instead of a subfolder. Only used when there's a single repository.
+        source_type_override: Optional "github" or "gitlab" to override auto-detection.
     """
     repo_path = os.path.join(temp_dir, repo.name)
 
-    # Clean source URL
-    source_url = source_url.replace(".git", "")  # remove .git from the url
-    source_url = source_url.rstrip("/")  # remove any trailing forward slashes
-
-    # Remove /tree/{branch} from URLs - this is a common error when copying from GitHub UI
-    source_url = re.sub(r"/tree/[^/]+/?$", "", source_url)
+    # Detect source platform and clean URL
+    platform = detect_source_platform(source_url, extra_gitlab_hosts, source_type_override)
+    source_url = clean_source_url(source_url)
+    print(f"Detected {platform.value} source: {source_url}")
 
     # Add authentication token to the URL for private repositories
-    authenticated_url = source_url.replace("https://", f"https://{github_token}@")
+    authenticated_url = make_authenticated_url(source_url, platform, github_token, gitlab_token)
 
     url_parts = source_url.split("/")
     source_repo_name = url_parts[-1]
@@ -400,11 +407,11 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         os.makedirs(parent_dir, exist_ok=True)
 
     try:
-        # Add the subtree to the repo
-        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash}", shell=True, check=False, capture_output=True, text=True)
+        # Add the subtree to the repo (list-based to avoid shell injection and token exposure)
+        subtree_result = subprocess.run(["git", "-C", repo_path, "subtree", "add", "--prefix", subtree_target, authenticated_url, commit_hash], check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
-            raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
+            raise Exception(f"Failed to add subtree: {sanitize_url(subtree_result.stderr)}")
 
         # If cloning to root, move all contents from temp folder to root
         if clone_to_root:
@@ -435,8 +442,8 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         else:
             actions_removal_path = subtree_path
 
-        # Remove GitHub Actions from the cloned repository for security
-        remove_github_actions(actions_removal_path)
+        # Remove CI configuration from the cloned repository for security
+        remove_source_ci(actions_removal_path)
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
@@ -462,7 +469,7 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
             log.error(f"Error creating tag {tag_name}: {e}")
 
     except Exception as e:
-        log.error(f"Error adding subtree for {source_repo_name}: {e}")
+        log.error(f"Error adding subtree for {source_repo_name}: {sanitize_url(str(e))}")
         log.warning("Continuing with the next repository...")
 
 
