@@ -41,6 +41,7 @@ SEVERITY_DATA = [
     {"name": "Report Status: Open", "color": "5319E7"},
     {"name": "Report Status: Acknowledged", "color": "BFA8DC"},
     {"name": "Report Status: Resolved", "color": "0E8A16"},
+    {"name": "Report Status: Partially Resolved", "color": "0E8A16"},
     {"name": "Client: Acknowledged", "color": "ceb5a8"},
     {"name": "Client: Proposed Invalid", "color": "27160f"},
     {"name": "Client: Will Fix", "color": "94be36"},
