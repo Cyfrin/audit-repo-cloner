@@ -6,12 +6,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import date
 from typing import List
 
 import click
 from dotenv import load_dotenv
-from github import Github, GithubException, Repository
+from github import Auth, Github, GithubException, Repository
 
 from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
@@ -99,7 +100,7 @@ def create_audit_repo(
         repo = create_target_repo(github_token, organization, target_repo_name)
 
         # Initialize the repo with README
-        initialize_repo(repo, temp_dir, github_token, organization, target_repo_name)
+        actual_branch = initialize_repo(repo, temp_dir, github_token, organization, target_repo_name)
         repo_path = os.path.join(temp_dir, target_repo_name)
 
         # Process each repository
@@ -135,6 +136,7 @@ def create_audit_repo(
             subtree_path,
             repositories,
             github_token,
+            default_branch=actual_branch,
         )
         repo = set_up_ci(repo, subtree_path)
         set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, project_title)
@@ -143,7 +145,7 @@ def create_audit_repo(
 
 
 def create_target_repo(github_token: str, organization: str, target_repo_name: str) -> Repository:
-    github_object = Github(github_token)
+    github_object = Github(auth=Auth.Token(github_token))
     github_org = github_object.get_organization(organization)
 
     try:
@@ -171,6 +173,8 @@ def create_target_repo(github_token: str, organization: str, target_repo_name: s
     try:
         repo = github_org.create_repo(target_repo_name, private=True)
         print(f"Created repository {target_repo_name}")
+        print("Waiting 5 seconds for GitHub API propagation...")
+        time.sleep(5)
         return repo
     except GithubException as e:
         log.error(f"Error creating remote repository: {e}")
@@ -228,6 +232,9 @@ The source code for all audit target repositories has been merged into this repo
             log.info("Attempting to push to 'master' branch instead...")
             subprocess.run(["git", "branch", "-m", "main", "master"], cwd=repo_path, check=False)
             subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
+            current_branch = "master"
+
+    return current_branch
 
 
 def merge_submodules(repo_path: str):
@@ -491,6 +498,7 @@ def add_subtree(
     subtree_path: str,
     repositories: List[dict],
     github_token: str = None,
+    default_branch: str = MAIN_BRANCH_NAME,
 ):
     # Add report-generator-template as a subtree
     repo_path = os.path.join(repo_path, target_repo_name)
@@ -503,7 +511,7 @@ def add_subtree(
 
         if REPORT_BRANCH_NAME not in check_branch.stdout:
             print(f"Creating {REPORT_BRANCH_NAME} branch...")
-            subprocess.run(f"git -C {repo_path} checkout {MAIN_BRANCH_NAME}", shell=True, check=False)
+            subprocess.run(f"git -C {repo_path} checkout {default_branch}", shell=True, check=False)
             subprocess.run(f"git -C {repo_path} checkout -b {REPORT_BRANCH_NAME}", shell=True, check=False)
         else:
             print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
