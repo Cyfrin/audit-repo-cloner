@@ -12,13 +12,12 @@ from typing import List
 
 import click
 from dotenv import load_dotenv
-from github import Auth, Github, GithubException, Repository
+from github import Github, GithubException, Repository
 
 from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
 from audit_repo_cloner.github_project_utils import clone_project
-from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_authenticated_url, sanitize_url, validate_tokens_for_repos
 
 # Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
@@ -33,6 +32,13 @@ SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 CONFIG_FILE = "config.json"
 
+# GitHub Actions related paths
+GITHUB_ACTIONS_PATHS = [
+    ".github/workflows",
+    ".github/actions",
+    ".github/action",
+]
+
 
 @click.command()
 @click.version_option(
@@ -42,14 +48,10 @@ CONFIG_FILE = "config.json"
 @click.option("--config-file", help="Path to config.json file.", default=CONFIG_FILE)
 @click.option("--github-token", help="Your GitHub developer token to make API calls.", default=os.getenv("GITHUB_ACCESS_TOKEN"))
 @click.option("--organization", help="Your GitHub organization name in which to clone the repo.", default=os.getenv("GITHUB_ORGANIZATION"))
-@click.option("--gitlab-token", help="Your GitLab token for cloning private GitLab source repos.", default=os.getenv("GITLAB_ACCESS_TOKEN"))
-@click.option("--gitlab-hosts", help="Comma-separated list of additional GitLab hostnames.", default=os.getenv("GITLAB_HOSTS"))
 def create_audit_repo(
     config_file: str = CONFIG_FILE,
     github_token: str = None,
     organization: str = None,
-    gitlab_token: str = None,
-    gitlab_hosts: str = None,
 ):
     """This function clones multiple repositories and prepares them for a Cyfrin audit using the provided configuration.
 
@@ -84,14 +86,6 @@ def create_audit_repo(
     if not github_token or not organization:
         raise click.UsageError("GitHub token and organization must be provided either through environment variables or as options.")
 
-    # Resolve GitLab token from .env (load_dotenv already called by prompt_for_token_and_org)
-    if not gitlab_token:
-        gitlab_token = os.getenv("GITLAB_ACCESS_TOKEN")
-    extra_gitlab_hosts = [h.strip() for h in (gitlab_hosts or "").split(",") if h.strip()]
-
-    # Validate tokens for all source repos before creating the target repo
-    validate_tokens_for_repos(repositories, github_token, gitlab_token, extra_gitlab_hosts)
-
     auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
@@ -100,7 +94,7 @@ def create_audit_repo(
         repo = create_target_repo(github_token, organization, target_repo_name)
 
         # Initialize the repo with README
-        actual_branch = initialize_repo(repo, temp_dir, github_token, organization, target_repo_name)
+        initialize_repo(repo, temp_dir, github_token, organization, target_repo_name)
         repo_path = os.path.join(temp_dir, target_repo_name)
 
         # Process each repository
@@ -111,7 +105,6 @@ def create_audit_repo(
             source_url = repo_config.get("sourceUrl")
             commit_hash = repo_config.get("commitHash")
             sub_folder = repo_config.get("subFolder", "")
-            source_type_override = repo_config.get("sourceType")
 
             if not source_url or not commit_hash:
                 log.warning(f"Skipping repository with missing sourceUrl or commitHash: {repo_config}")
@@ -119,7 +112,7 @@ def create_audit_repo(
 
             # Clone to root only if: single repo AND no explicit subFolder specified
             clone_to_root = is_single_repo and not sub_folder
-            clone_source_repo_as_subtree(repo, temp_dir, github_token, gitlab_token, extra_gitlab_hosts, source_url, commit_hash, sub_folder, clone_to_root, source_type_override)
+            clone_source_repo_as_subtree(repo, temp_dir, github_token, source_url, commit_hash, sub_folder, clone_to_root)
 
         # Merge all submodules after all subtrees are added
         merge_submodules(repo_path)
@@ -136,7 +129,6 @@ def create_audit_repo(
             subtree_path,
             repositories,
             github_token,
-            default_branch=actual_branch,
         )
         repo = set_up_ci(repo, subtree_path)
         set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, project_title)
@@ -145,7 +137,7 @@ def create_audit_repo(
 
 
 def create_target_repo(github_token: str, organization: str, target_repo_name: str) -> Repository:
-    github_object = Github(auth=Auth.Token(github_token))
+    github_object = Github(github_token)
     github_org = github_object.get_organization(organization)
 
     try:
@@ -173,8 +165,6 @@ def create_target_repo(github_token: str, organization: str, target_repo_name: s
     try:
         repo = github_org.create_repo(target_repo_name, private=True)
         print(f"Created repository {target_repo_name}")
-        print("Waiting 5 seconds for GitHub API propagation...")
-        time.sleep(5)
         return repo
     except GithubException as e:
         log.error(f"Error creating remote repository: {e}")
@@ -182,20 +172,23 @@ def create_target_repo(github_token: str, organization: str, target_repo_name: s
 
 
 def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organization: str, target_repo_name: str):
-    """Initialize the target repository with a README file"""
+    """Initialize the target repository with a README file.
+
+    Raises:
+        RuntimeError: if the initial commit cannot be pushed to the remote. Without an
+            initialized upstream every downstream operation (subtree adds, tag creation,
+            branch refs from API, etc.) silently produces a broken repo, so we fail loudly.
+    """
     repo_path = os.path.join(temp_dir, target_repo_name)
     os.makedirs(repo_path, exist_ok=True)
 
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=repo_path, check=False)
-
-    # Set the default branch name
-    # Git 2.28+ can set init.defaultBranch, but we'll handle both new and old git versions
-    subprocess.run(["git", "checkout", "-b", MAIN_BRANCH_NAME], cwd=repo_path, check=False)
+    # Initialize git repo on MAIN_BRANCH_NAME regardless of the user's init.defaultBranch.
+    subprocess.run(["git", "init", "-b", MAIN_BRANCH_NAME], cwd=repo_path, check=True, capture_output=True)
 
     # Create README.md
     with open(os.path.join(repo_path, "README.md"), "w") as f:
-        f.write(f"""# {target_repo_name}
+        f.write(
+            f"""# {target_repo_name}
 
 ## Getting Started
 Clone the repository:
@@ -204,37 +197,62 @@ Clone the repository:
 git clone --recurse-submodules [repository-url]
 ```
 The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
-            """)
+            """
+        )
 
     # Configure git
-    subprocess.run(["git", "config", "user.name", "Cyfrin Bot"], cwd=repo_path, check=False)
-    subprocess.run(["git", "config", "user.email", "bot@cyfrin.io"], cwd=repo_path, check=False)
+    subprocess.run(["git", "config", "user.name", "Cyfrin Bot"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "bot@cyfrin.io"], cwd=repo_path, check=True, capture_output=True)
 
     # Add remote
-    subprocess.run(["git", "remote", "add", "origin", f"https://{github_token}@github.com/{organization}/{target_repo_name}.git"], cwd=repo_path, check=False)
+    subprocess.run(
+        ["git", "remote", "add", "origin", f"https://{github_token}@github.com/{organization}/{target_repo_name}.git"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
 
-    # Commit and push
-    subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=False)
+    # Commit
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, capture_output=True)
 
-    # Check the current branch
-    branch_process = subprocess.run(["git", "branch", "--show-current"], cwd=repo_path, capture_output=True, text=True, check=False)
-    current_branch = branch_process.stdout.strip() or MAIN_BRANCH_NAME
+    # Push the initial commit, retrying to absorb GitHub's eventual-consistency window after
+    # create_repo. The API call returns before the new repository is reliably reachable for
+    # git operations, so the very first push can return 404 / "Repository not found" for a
+    # few seconds. Without retry we used to fall through to a brittle main->master rename
+    # whose push errors were never captured, leaving the local repo with no upstream and
+    # all downstream work cascading into broken state on a remote that is still empty.
+    push_initial_commit_with_retry(repo_path, MAIN_BRANCH_NAME)
 
-    # Push to the current branch
-    push_result = subprocess.run(["git", "push", "-u", "origin", current_branch], cwd=repo_path, capture_output=True, text=True, check=False)
 
-    if push_result.returncode != 0:
-        log.error(f"Failed to push to {current_branch}: {push_result.stderr}")
+def push_initial_commit_with_retry(repo_path: str, branch: str, attempts: int = 6, initial_backoff_seconds: float = 2.0):
+    """Push <branch> with -u to origin, retrying with exponential backoff.
 
-        # If failed and current branch is 'main', try 'master' instead
-        if current_branch == "main":
-            log.info("Attempting to push to 'master' branch instead...")
-            subprocess.run(["git", "branch", "-m", "main", "master"], cwd=repo_path, check=False)
-            subprocess.run(["git", "push", "-u", "origin", "master"], cwd=repo_path, check=False)
-            current_branch = "master"
-
-    return current_branch
+    Raises RuntimeError on final failure with the last stderr surfaced for diagnosis.
+    """
+    backoff = initial_backoff_seconds
+    last_stderr = ""
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(
+            ["git", "push", "-u", "origin", branch],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            if attempt > 1:
+                log.info(f"Initial push succeeded on attempt {attempt}")
+            return
+        last_stderr = (result.stderr or result.stdout or "").strip()
+        log.warning(f"Initial push attempt {attempt}/{attempts} failed: {last_stderr}")
+        if attempt < attempts:
+            time.sleep(backoff)
+            backoff *= 2
+    raise RuntimeError(
+        f"Could not push initial commit to origin/{branch} after {attempts} attempts. "
+        f"Last error: {last_stderr}"
+    )
 
 
 def merge_submodules(repo_path: str):
@@ -323,9 +341,20 @@ def merge_submodules(repo_path: str):
                 log.error(f"Failed to write config {key}: {e.stderr}")
                 continue
 
-        # Add and commit the changes
+        # Add and commit the changes. In the single-repo / clone-to-root path the prior
+        # subtree commit already contains the merged .gitmodules, so there is nothing new
+        # to commit — detect that case and skip instead of logging it as an error.
+        subprocess.run(["git", "-C", repo_path, "add", ".gitmodules"], check=True)
+        status = subprocess.run(
+            ["git", "-C", repo_path, "status", "--porcelain", ".gitmodules"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if not status.stdout.strip():
+            log.info(".gitmodules already up to date with merged submodule config")
+            return
         try:
-            subprocess.run(["git", "-C", repo_path, "add", ".gitmodules"], check=True)
             subprocess.run(["git", "-C", repo_path, "commit", "-m", "Update .gitmodules with all submodules"], check=True)
             subprocess.run(["git", "-C", repo_path, "push"], check=True)
             log.info("Updated .gitmodules with all submodules")
@@ -335,52 +364,50 @@ def merge_submodules(repo_path: str):
         log.warning("No submodule configurations found to write")
 
 
-def remove_source_ci(directory_path: str):
-    """Remove CI/CD configuration from cloned source repositories for security.
+def remove_github_actions(directory_path: str):
+    """Remove GitHub Actions directories from cloned repositories for security.
 
-    Removes both GitHub Actions and GitLab CI artifacts regardless of source platform,
-    since a migrated repo could have both.
+    This prevents any potential security breaches from executing actions
+    from the original repositories.
     """
-    log.info(f"Removing CI configuration from {directory_path}")
+    log.info(f"Removing GitHub Actions from {directory_path}")
 
-    for ci_path in ALL_CI_PATHS:
-        full_path = os.path.join(directory_path, ci_path)
+    for actions_path in GITHUB_ACTIONS_PATHS:
+        full_path = os.path.join(directory_path, actions_path)
         if os.path.exists(full_path):
-            log.info(f"Removing CI artifact: {full_path}")
+            log.info(f"Removing GitHub Actions directory: {full_path}")
             try:
-                if os.path.isfile(full_path):
-                    os.remove(full_path)
-                elif os.path.isdir(full_path):
-                    if os.name == "nt":  # Windows
-                        subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
-                    else:  # Unix-like
-                        subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
+                if os.name == "nt":  # Windows
+                    subprocess.run(f'rmdir /S /Q "{full_path}"', shell=True, check=False)
+                else:  # Unix-like
+                    subprocess.run(f'rm -rf "{full_path}"', shell=True, check=False)
 
-                    # Create a .gitkeep file to preserve the directory structure
-                    os.makedirs(full_path, exist_ok=True)
-                    with open(os.path.join(full_path, ".gitkeep"), "w") as f:
-                        f.write("# CI configuration removed for security\n")
+                # Create a .gitkeep file to preserve the directory structure if needed
+                os.makedirs(full_path, exist_ok=True)
+                with open(os.path.join(full_path, ".gitkeep"), "w") as f:
+                    f.write("# GitHub Actions removed for security\n")
             except Exception as e:
-                log.error(f"Error removing CI artifact {full_path}: {e}")
+                log.error(f"Error removing GitHub Actions directory {full_path}: {e}")
 
 
-def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, gitlab_token: str, extra_gitlab_hosts: List[str], source_url: str, commit_hash: str, sub_folder: str, clone_to_root: bool = False, source_type_override: str = None):
+def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: str, source_url: str, commit_hash: str, sub_folder: str, clone_to_root: bool = False):
     """Clone a source repository and merge it into the target repo using git subtree
 
     Args:
         clone_to_root: If True, clone the repo contents directly to the root directory
                        instead of a subfolder. Only used when there's a single repository.
-        source_type_override: Optional "github" or "gitlab" to override auto-detection.
     """
     repo_path = os.path.join(temp_dir, repo.name)
 
-    # Detect source platform and clean URL
-    platform = detect_source_platform(source_url, extra_gitlab_hosts, source_type_override)
-    source_url = clean_source_url(source_url)
-    print(f"Detected {platform.value} source: {source_url}")
+    # Clean source URL
+    source_url = source_url.replace(".git", "")  # remove .git from the url
+    source_url = source_url.rstrip("/")  # remove any trailing forward slashes
+
+    # Remove /tree/{branch} from URLs - this is a common error when copying from GitHub UI
+    source_url = re.sub(r"/tree/[^/]+/?$", "", source_url)
 
     # Add authentication token to the URL for private repositories
-    authenticated_url = make_authenticated_url(source_url, platform, github_token, gitlab_token)
+    authenticated_url = source_url.replace("https://", f"https://{github_token}@")
 
     url_parts = source_url.split("/")
     source_repo_name = url_parts[-1]
@@ -414,11 +441,11 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         os.makedirs(parent_dir, exist_ok=True)
 
     try:
-        # Add the subtree to the repo (list-based to avoid shell injection and token exposure)
-        subtree_result = subprocess.run(["git", "-C", repo_path, "subtree", "add", "--prefix", subtree_target, authenticated_url, commit_hash], check=False, capture_output=True, text=True)
+        # Add the subtree to the repo
+        subtree_result = subprocess.run(f"git -C {repo_path} subtree add --prefix {subtree_target} {authenticated_url} {commit_hash}", shell=True, check=False, capture_output=True, text=True)
 
         if subtree_result.returncode != 0:
-            raise Exception(f"Failed to add subtree: {sanitize_url(subtree_result.stderr)}")
+            raise Exception(f"Failed to add subtree: {subtree_result.stderr}")
 
         # If cloning to root, move all contents from temp folder to root
         if clone_to_root:
@@ -449,8 +476,8 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         else:
             actions_removal_path = subtree_path
 
-        # Remove CI configuration from the cloned repository for security
-        remove_source_ci(actions_removal_path)
+        # Remove GitHub Actions from the cloned repository for security
+        remove_github_actions(actions_removal_path)
 
         # Update parent repo
         subprocess.run(["git", "add", "."], cwd=repo_path, check=False)
@@ -458,8 +485,14 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         push_process = subprocess.run(["git", "push"], cwd=repo_path, check=False, capture_output=True, text=True)
 
         if push_process.returncode != 0:
-            log.warning(f"Failed to push changes: {push_process.stderr}")
-            log.info("Continuing anyway...")
+            # If the source code did not reach the remote, every downstream step (tag
+            # creation, audit branch refs from API, report subtree push) operates on the
+            # wrong base. Fail loudly instead of "Continuing anyway..." which is what
+            # produced the previous broken-repo incident.
+            raise RuntimeError(
+                f"Failed to push subtree commit for {source_repo_name} to origin: "
+                f"{(push_process.stderr or push_process.stdout).strip()}"
+            )
 
         # Create tag in the main repo pointing to this commit
         tag_name = f"{source_repo_name}-cyfrin-audit"
@@ -475,8 +508,12 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         except GithubException as e:
             log.error(f"Error creating tag {tag_name}: {e}")
 
+    except RuntimeError:
+        # Push failures (raised explicitly above) corrupt the target repo for every
+        # subsequent step — propagate so the run aborts loudly.
+        raise
     except Exception as e:
-        log.error(f"Error adding subtree for {source_repo_name}: {sanitize_url(str(e))}")
+        log.error(f"Error adding subtree for {source_repo_name}: {e}")
         log.warning("Continuing with the next repository...")
 
 
@@ -498,7 +535,6 @@ def add_subtree(
     subtree_path: str,
     repositories: List[dict],
     github_token: str = None,
-    default_branch: str = MAIN_BRANCH_NAME,
 ):
     # Add report-generator-template as a subtree
     repo_path = os.path.join(repo_path, target_repo_name)
@@ -511,7 +547,7 @@ def add_subtree(
 
         if REPORT_BRANCH_NAME not in check_branch.stdout:
             print(f"Creating {REPORT_BRANCH_NAME} branch...")
-            subprocess.run(f"git -C {repo_path} checkout {default_branch}", shell=True, check=False)
+            subprocess.run(f"git -C {repo_path} checkout {MAIN_BRANCH_NAME}", shell=True, check=False)
             subprocess.run(f"git -C {repo_path} checkout -b {REPORT_BRANCH_NAME}", shell=True, check=False)
         else:
             print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
