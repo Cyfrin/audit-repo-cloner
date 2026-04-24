@@ -35,16 +35,23 @@ jobs:
 
               if (/\*\*Description:\*\*/.test(line)) hasDescription = true;
 
+              // Only flag the canonical Finding template headings when they appear
+              // without a trailing colon. Arbitrary bold-only lines like `**important note**`
+              // are legitimate emphasis and must not be flagged.
+              const TEMPLATE_HEADINGS = ['Description', 'Impact', 'Proof of Concept', 'Recommended Mitigation', 'Cyfrin'];
               const boldOnly = line.match(/^\s*\*\*([^*]+?)\*\*\s*$/);
-              if (boldOnly && !boldOnly[1].trimEnd().endsWith(':')) {
-                const text = boldOnly[1].trimEnd();
-                problems.push({
-                  line: i + 1,
-                  kind: 'bold heading missing trailing colon',
-                  text: line,
-                  fix: `bold-as-heading must end with \`:\` inside the \`**\` — write \`**${text}:**\``,
-                });
-                continue;
+              if (boldOnly) {
+                const inner = boldOnly[1].trim();
+                const innerNoColon = inner.replace(/:$/, '').trim();
+                if (TEMPLATE_HEADINGS.includes(innerNoColon) && !inner.endsWith(':')) {
+                  problems.push({
+                    line: i + 1,
+                    kind: `template heading \`**${innerNoColon}**\` missing trailing colon`,
+                    text: line,
+                    fix: `Finding-template headings must end with \`:\` inside the \`**\` — write \`**${innerNoColon}:**\``,
+                  });
+                  continue;
+                }
               }
 
               if (/\*\*\[Project\]:\*\*/.test(line)) {
