@@ -45,7 +45,8 @@ SEVERITY_DATA = [
     {"name": "Client: Acknowledged", "color": "ceb5a8"},
     {"name": "Client: Proposed Invalid", "color": "27160f"},
     {"name": "Client: Will Fix", "color": "94be36"},
-    {"name": "Client: Proposed Fix", "color": "016043"}
+    {"name": "Client: Proposed Fix", "color": "016043"},
+    {"name": "BAD ISSUE FORMATTING", "color": "4A002A"},
 ]
 
 PROJECT_TEMPLATE_ID = "5"

@@ -1,0 +1,189 @@
+name: lint-audit-issues
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+
+permissions:
+  issues: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
+        with:
+          script: |
+            const BAD_FORMAT_LABEL = 'BAD ISSUE FORMATTING';
+            const COMMENT_MARKER = '<!-- lint-audit-issues -->';
+
+            const body = (process.env.ISSUE_BODY || '').replace(/\r\n/g, '\n');
+            const lines = body.split('\n');
+
+            const problems = [];
+            let inFence = false;
+            let hasDescription = false;
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+              if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+              if (inFence) continue;
+
+              if (/\*\*Description:\*\*/.test(line)) hasDescription = true;
+
+              const boldOnly = line.match(/^\s*\*\*([^*]+?)\*\*\s*$/);
+              if (boldOnly && !boldOnly[1].trimEnd().endsWith(':')) {
+                const text = boldOnly[1].trimEnd();
+                problems.push({
+                  line: i + 1,
+                  kind: 'bold heading missing trailing colon',
+                  text: line,
+                  fix: `bold-as-heading must end with \`:\` inside the \`**\` — write \`**${text}:**\``,
+                });
+                continue;
+              }
+
+              if (/\*\*\[Project\]:\*\*/.test(line)) {
+                problems.push({
+                  line: i + 1,
+                  kind: 'unreplaced `**[Project]:**` placeholder',
+                  text: line,
+                  fix: 'replace `[Project]` with the client name',
+                });
+                continue;
+              }
+
+              const heading = line.match(/^(\s*)(#{1,6})\s+(.+)$/);
+              if (heading) {
+                problems.push({
+                  line: i + 1,
+                  kind: 'markdown heading',
+                  text: line,
+                  fix: `replace with \`**${heading[3].trim()}**\``,
+                });
+                continue;
+              }
+
+              const html = line.match(/<\s*h[1-6][\s>]/i);
+              if (html) {
+                problems.push({
+                  line: i + 1,
+                  kind: 'HTML heading tag',
+                  text: line,
+                  fix: 'remove the `<hN>` tag and use `**bold**` instead',
+                });
+                continue;
+              }
+
+              const collapsible = line.match(/<\s*\/?\s*(details|summary)[\s>]/i);
+              if (collapsible) {
+                problems.push({
+                  line: i + 1,
+                  kind: `\`<${collapsible[1].toLowerCase()}>\` collapsible section`,
+                  text: line,
+                  fix: 'remove the `<details>`/`<summary>` tags — collapsible sections do not render in the PDF; promote the content to inline text with a `**bold**` label',
+                });
+                continue;
+              }
+
+              if (/\]\(\s*$/.test(line)) {
+                problems.push({
+                  line: i + 1,
+                  kind: 'wrapped markdown link',
+                  text: line,
+                  fix: 'put the entire `[text](url)` on one line',
+                });
+              }
+
+              // #NUMBER references break report generation: helpers.py rewrites them
+              // into internal anchors, and a missing/external number raises KeyError.
+              // Skip URL fragments (#L42 in github links) by requiring no preceding word char.
+              const refs = [...line.matchAll(/(^|[^\w&\/])(#\d{1,4})(?!\w)/g)];
+              for (const m of refs) {
+                problems.push({
+                  line: i + 1,
+                  kind: `\`${m[2]}\` issue reference`,
+                  text: line,
+                  fix: `drop the \`#\` (e.g. write \`issue ${m[2].slice(1)}\`) or use the full URL \`https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${m[2].slice(1)}\``,
+                });
+              }
+            }
+
+            if (!hasDescription) {
+              problems.push({
+                line: 0,
+                kind: 'missing `**Description:**` section',
+                text: '(not present in body)',
+                fix: 'every issue body must contain a `**Description:**` section — add one and follow the standard finding template (Description / Impact / Proof of Concept / Recommended Mitigation)',
+              });
+            }
+
+            const labels = JSON.parse(process.env.ISSUE_LABELS || '[]');
+            const hasSeverity = labels.some(n => /^Severity:\s/i.test(n));
+            const hasReportStatus = labels.some(n => /^Report Status:\s/i.test(n));
+
+            if (!hasSeverity) {
+              problems.push({
+                line: 0,
+                kind: 'missing `Severity:` label',
+                text: '(no label starting with `Severity:` is applied)',
+                fix: 'apply one of the `Severity: <level>` labels (Critical / High / Medium / Low / Informational / Gas Optimization)',
+              });
+            }
+
+            if (!hasReportStatus) {
+              problems.push({
+                line: 0,
+                kind: 'missing `Report Status:` label',
+                text: '(no label starting with `Report Status:` is applied)',
+                fix: 'apply one of the `Report Status: <state>` labels',
+              });
+            }
+
+            const issue_number = Number(process.env.ISSUE_NUMBER);
+            const { owner, repo } = context.repo;
+
+            const existing = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const prior = existing.find(c => c.body && c.body.includes(COMMENT_MARKER));
+
+            if (problems.length === 0) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: BAD_FORMAT_LABEL });
+              } catch (e) { /* label not present; ignore */ }
+              if (prior) {
+                await github.rest.issues.deleteComment({ owner, repo, comment_id: prior.id });
+              }
+              core.info('No formatting problems found.');
+              return;
+            }
+
+            const author = process.env.ISSUE_AUTHOR;
+            const list = problems.map(p => {
+              const loc = p.line > 0 ? `**L${p.line}**` : '**body**';
+              return `- ${loc} — ${p.kind}: \`${p.text.trim()}\`\n  - ${p.fix}`;
+            }).join('\n');
+
+            const commentBody = [
+              COMMENT_MARKER,
+              `@${author} this issue body has formatting that breaks PDF report generation:`,
+              '',
+              list,
+              '',
+              'Headings inside an issue body leak into the report TOC. Use `**Bold**` for inline section labels instead of `#`/`##`/`###` or `<hN>`. Wrapped link URLs (`](` at end of line) won\'t render as links — keep `[text](url)` on one line. Every issue must have a `Severity:` label and a `Report Status:` label applied.',
+              '',
+              `Edit the issue body to fix and the \`${BAD_FORMAT_LABEL}\` label will clear automatically.`,
+            ].join('\n');
+
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [BAD_FORMAT_LABEL] });
+
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body: commentBody });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: commentBody });
+            }

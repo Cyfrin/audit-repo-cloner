@@ -125,6 +125,7 @@ def create_audit_repo(
         merge_submodules(repo_path)
 
         repo = add_issue_template_to_repo(repo)
+        repo = add_lint_issues_workflow_to_repo(repo, branch_name=actual_branch)
         repo = replace_labels_in_repo(repo)
         repo = create_branches_for_auditors(repo, auditors_list, repo.get_commits()[0].sha)
         repo = create_report_branch(repo, repo.get_commits()[0].sha)
@@ -673,6 +674,14 @@ def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
     return repo
 
 
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+
+def _read_template(filename: str) -> str:
+    with open(os.path.join(TEMPLATES_DIR, filename)) as f:
+        return f.read()
+
+
 def add_issue_template_to_repo(repo) -> Repository:
     # Get the existing finding.md file, if it exists
     try:
@@ -683,6 +692,38 @@ def add_issue_template_to_repo(repo) -> Repository:
     # If finding.md already exists, leave it be. Otherwise, create the file.
     if finding_file is None:
         repo.create_file(".github/ISSUE_TEMPLATE/finding.md", "finding.md", ISSUE_TEMPLATE)
+
+    # Disable the "Open a blank issue" link so non-maintainers can only file Findings.
+    try:
+        repo.get_contents(".github/ISSUE_TEMPLATE/config.yml")
+    except GithubException:
+        repo.create_file(
+            ".github/ISSUE_TEMPLATE/config.yml",
+            "Disable blank issues",
+            _read_template("issue_template_config.yml"),
+        )
+
+    return repo
+
+
+def add_lint_issues_workflow_to_repo(repo, branch_name: str = MAIN_BRANCH_NAME) -> Repository:
+    """Install the issue-body linter workflow on the default branch.
+
+    GitHub only fires `issues` events from workflows that exist on the default branch,
+    so this must land on `main`/`master` rather than the report branch.
+    """
+    workflow_path = ".github/workflows/lint-audit-issues.yml"
+    try:
+        repo.get_contents(workflow_path, ref=branch_name)
+        log.info(f"{workflow_path} already exists. Skipping...")
+    except GithubException:
+        repo.create_file(
+            workflow_path,
+            "Add lint-audit-issues workflow",
+            _read_template("lint-audit-issues.yml"),
+            branch=branch_name,
+        )
+        log.info(f"Added {workflow_path} on {branch_name}")
     return repo
 
 
