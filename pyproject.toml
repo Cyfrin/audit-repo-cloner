@@ -22,7 +22,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "Deprecated>=1.2.13",
     "gql>=3.5.0",
-    "idna>=3.4",
+    "idna>=3.15",
     "packaging>=23.1",
     "pyasn1>=0.6.3",
     "pycparser>=2.21",
@@ -34,7 +34,7 @@ dependencies = [
     "requests>=2.33.0",
     "requests-toolbelt>=1.0.0",
     "rsa>=4.9",
-    "urllib3>=1.26.15",
+    "urllib3>=2.7.0",
     "wrapt>=1.15.0",
 ]
 
