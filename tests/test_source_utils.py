@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from audit_repo_cloner.source_utils import ALL_CI_PATHS, GITHUB_CI_PATHS, GITLAB_CI_PATHS, SourcePlatform, clean_source_url, detect_source_platform, make_authenticated_url, sanitize_url, validate_tokens_for_repos
+from audit_repo_cloner.source_utils import ALL_CI_PATHS, GITHUB_CI_PATHS, GITLAB_CI_PATHS, SourcePlatform, clean_source_url, detect_source_platform, make_authenticated_url, make_source_clone_urls, sanitize_url, validate_tokens_for_repos
 
 # --- detect_source_platform ---
 
@@ -122,6 +122,30 @@ class TestMakeAuthenticatedUrl:
     def test_url_encodes_special_characters_gitlab(self):
         result = make_authenticated_url("https://gitlab.com/group/repo", SourcePlatform.GITLAB, "ghp", "gl@pat/tok#en")
         assert "oauth2:gl%40pat%2Ftok%23en@gitlab.com" in result
+
+
+# --- make_source_clone_urls ---
+
+
+class TestMakeSourceCloneUrls:
+    def test_github_prefers_public_url_then_token_url(self):
+        result = make_source_clone_urls("https://github.com/user/repo", SourcePlatform.GITHUB, "ghp_token123", None)
+        assert result == [
+            "https://github.com/user/repo",
+            "https://ghp_token123@github.com/user/repo",
+        ]
+
+    def test_github_without_token_uses_public_url_only(self):
+        result = make_source_clone_urls("https://github.com/user/repo", SourcePlatform.GITHUB, "", None)
+        assert result == ["https://github.com/user/repo"]
+
+    def test_gitlab_uses_authenticated_url(self):
+        result = make_source_clone_urls("https://gitlab.com/group/repo", SourcePlatform.GITLAB, "ghp_token", "glpat-abc123")
+        assert result == ["https://oauth2:glpat-abc123@gitlab.com/group/repo"]
+
+    def test_http_url_raises(self):
+        with pytest.raises(ValueError, match="must use HTTPS"):
+            make_source_clone_urls("http://github.com/user/repo", SourcePlatform.GITHUB, "token", None)
 
 
 # --- sanitize_url ---

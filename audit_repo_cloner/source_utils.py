@@ -104,6 +104,27 @@ def make_authenticated_url(url: str, platform: SourcePlatform, github_token: str
     raise ValueError(f"Unsupported source platform: {platform}")
 
 
+def make_source_clone_urls(url: str, platform: SourcePlatform, github_token: str, gitlab_token: Optional[str] = None) -> List[str]:
+    """Return clone URLs to try for a source repository.
+
+    Trying the plain GitHub URL first lets Git use configured credential
+    helpers and avoids sending classic PATs to orgs that reject them, while
+    keeping a token fallback for private repositories.
+    """
+    if platform == SourcePlatform.GITHUB:
+        if not url.startswith("https://"):
+            raise ValueError(f"Source URL must use HTTPS (got: {sanitize_url(url)}). Credentials over plaintext HTTP are a security risk.")
+
+        urls = [url]
+        if github_token:
+            authenticated_url = make_authenticated_url(url, platform, github_token, gitlab_token)
+            if authenticated_url not in urls:
+                urls.append(authenticated_url)
+        return urls
+
+    return [make_authenticated_url(url, platform, github_token, gitlab_token)]
+
+
 def sanitize_url(url: str) -> str:
     """Strip embedded credentials from a URL for safe logging/error messages."""
     try:

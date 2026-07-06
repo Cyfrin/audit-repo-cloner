@@ -18,7 +18,7 @@ from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
 from audit_repo_cloner.github_project_utils import clone_project
-from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_authenticated_url, sanitize_url, validate_tokens_for_repos
+from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_authenticated_url, make_source_clone_urls, sanitize_url, validate_tokens_for_repos
 
 # Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
@@ -380,8 +380,7 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
     source_url = clean_source_url(source_url)
     print(f"Detected {platform.value} source: {source_url}")
 
-    # Add authentication token to the URL for private repositories
-    authenticated_url = make_authenticated_url(source_url, platform, github_token, gitlab_token)
+    clone_urls = make_source_clone_urls(source_url, platform, github_token, gitlab_token)
 
     url_parts = source_url.split("/")
     source_repo_name = url_parts[-1]
@@ -416,7 +415,16 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
 
     try:
         # Add the subtree to the repo (list-based to avoid shell injection and token exposure)
-        subtree_result = subprocess.run(["git", "-C", repo_path, "subtree", "add", "--prefix", subtree_target, authenticated_url, commit_hash], check=False, capture_output=True, text=True)
+        subtree_result = None
+        for clone_url in clone_urls:
+            subtree_result = subprocess.run(["git", "-C", repo_path, "subtree", "add", "--prefix", subtree_target, clone_url, commit_hash], check=False, capture_output=True, text=True)
+            if subtree_result.returncode == 0:
+                break
+
+            if clone_url != clone_urls[-1]:
+                log.info(f"Failed to add subtree from {sanitize_url(clone_url)}; retrying with authenticated source URL...")
+                if os.path.exists(subtree_path):
+                    shutil.rmtree(subtree_path)
 
         if subtree_result.returncode != 0:
             raise Exception(f"Failed to add subtree: {sanitize_url(subtree_result.stderr)}")
