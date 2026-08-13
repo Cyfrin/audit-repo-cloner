@@ -59,4 +59,4 @@ TRELLO_LABELS = [
     "Report Ready",
 ]
 
-TRELLO_COLUMNS = ["Archive", "Ideas", "Findings", "Peer Reviewed", "Report"]
+TRELLO_COLUMNS = ["Archive", "Peer-reviewed", "Findings", "Report"]
