@@ -25,7 +25,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
-uv sync
+uv sync --locked
 ```
 
 3. Get a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) and either set it in environment variable `GITHUB_ACCESS_TOKEN` or add it to the `.env` file:
@@ -207,7 +207,7 @@ See `config.gitlab.json.example` and `config.mixed.json.example` for more exampl
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
-uv sync --group dev
+uv sync --locked --all-groups
 ```
 
 2. Install pre-commit hooks:

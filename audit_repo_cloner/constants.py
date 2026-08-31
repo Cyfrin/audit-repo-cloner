@@ -14,7 +14,7 @@ assignees: ''
 
 **Recommended Mitigation:**
 
-**[Project]:** 
+**[Project]:**
 
 **Cyfrin:**"""
 

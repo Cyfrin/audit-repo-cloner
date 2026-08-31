@@ -1,31 +1,30 @@
 # Development Setup
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) before continuing.
+
 1. Clone and set up the repository:
 ```bash
 git clone https://github.com/Cyfrin/audit-repo-cloner
 cd audit-repo-cloner
-python3 -m venv venv
-source venv/bin/activate
 ```
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
-pip install -e .
+uv sync --locked --all-groups
 ```
 
 # Code Quality
 
-This project uses pre-commit to ensure code quality. After installing the requirements:
+This project uses pre-commit to ensure code quality. After installing the dependencies:
 
 1. Install pre-commit hooks:
 ```bash
-pre-commit install
+uv run pre-commit install
 ```
 
 2. Run pre-commit on all files (recommended for initial setup):
 ```bash
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 Note: By default, `pre-commit run` without `--all-files` only checks staged files. If you see "no files to check", either:

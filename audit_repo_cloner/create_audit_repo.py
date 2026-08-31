@@ -18,7 +18,7 @@ from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
 from audit_repo_cloner.github_project_utils import clone_project
-from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_authenticated_url, make_source_clone_urls, sanitize_url, validate_tokens_for_repos
+from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_source_clone_urls, sanitize_url, validate_tokens_for_repos
 
 # Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
@@ -167,7 +167,7 @@ def create_target_repo(github_token: str, organization: str, target_repo_name: s
         if result.returncode == 0:
             log.error(f"{organization}/{target_repo_name} already exists.")
             exit()
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         # Repository doesn't exist, continue
         pass
 
@@ -615,8 +615,8 @@ def set_up_ci(repo, subtree_path: str):
             str(date.today()),
         )
     except Exception as e:
-        log.warn(f"Error occurred while setting up CI: {str(e)}")
-        log.warn("Please set up CI manually using the report-generation.yml file.")
+        log.warning(f"Error occurred while setting up CI: {str(e)}")
+        log.warning("Please set up CI manually using the report-generation.yml file.")
 
     return repo
 
@@ -743,7 +743,7 @@ def delete_default_labels(repo) -> Repository:
             log.info(f"Deleting {label}...")
             label.delete()
         except Exception:
-            log.warn(f"Label {label} does not exist. Skipping...")
+            log.warning(f"Label {label} does not exist. Skipping...")
     log.info("Finished deleting default labels")
     return repo
 
@@ -753,8 +753,8 @@ def create_new_labels(repo) -> Repository:
     for data in SEVERITY_DATA:
         try:
             repo.create_label(**data)
-        except:
-            log.warn(f"Issue creating label with data: {data}. Skipping...")
+        except GithubException:
+            log.warning(f"Issue creating label with data: {data}. Skipping...")
     print("Finished creating new labels")
     return repo
 
@@ -766,7 +766,7 @@ def create_branches_for_auditors(repo, auditors_list, commit_hash) -> Repository
             repo.create_git_ref(f"refs/heads/{branch_name}", commit_hash)
         except GithubException as e:
             if e.status == 422:
-                log.warn(f"Branch {branch_name} already exists. Skipping...")
+                log.warning(f"Branch {branch_name} already exists. Skipping...")
                 continue
             else:
                 log.error(f"Error creating branch: {e}")
@@ -786,7 +786,7 @@ def create_report_branch(repo, commit_hash) -> Repository:
         repo.create_git_ref(ref=f"refs/heads/{REPORT_BRANCH_NAME}", sha=commit_hash)
     except GithubException as e:
         if e.status == 422:
-            log.warn(f"Branch {REPORT_BRANCH_NAME} already exists. Skipping...")
+            log.warning(f"Branch {REPORT_BRANCH_NAME} already exists. Skipping...")
         else:
             log.error(f"Error creating branch: {e}")
             repo.delete()

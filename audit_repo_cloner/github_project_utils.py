@@ -9,8 +9,7 @@ logging.getLogger("gql.transport.requests").setLevel(logging.WARNING)
 
 
 def get_node_ids(client: Client, organization: str, target_repo_name: str, project_template_id: int) -> tuple[str, str, str]:
-    query = gql(
-        """
+    query = gql("""
     query GetNodeIds($owner: String!, $repo_name: String!, $project_number: Int!) {
         repository(owner: $owner, name: $repo_name) {
             id
@@ -24,8 +23,7 @@ def get_node_ids(client: Client, organization: str, target_repo_name: str, proje
             }
         }
     }
-    """
-    )
+    """)
 
     query_variables = {"owner": organization, "repo_name": target_repo_name, "project_number": project_template_id}
 
@@ -44,8 +42,7 @@ def get_node_ids(client: Client, organization: str, target_repo_name: str, proje
 
 def copy_project(client: Client, owner_node_id: str, project_template_id: str, project_title: str) -> str:
     # GraphQL Mutation for copying a project
-    create_project_mutation = gql(
-        """
+    create_project_mutation = gql("""
         mutation CopyProjectV2($input: CopyProjectV2Input!) {
             copyProjectV2(input: $input) {
                 projectV2 {
@@ -54,8 +51,7 @@ def copy_project(client: Client, owner_node_id: str, project_template_id: str, p
                 }
             }
         }
-    """
-    )
+    """)
 
     # Variables for the mutation
     copy_mutation_variables = {
@@ -79,8 +75,7 @@ def copy_project(client: Client, owner_node_id: str, project_template_id: str, p
 
 def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> str:
     # GraphQL Mutation for linking a project to a repo
-    link_project_mutation = gql(
-        """
+    link_project_mutation = gql("""
         mutation LinkProjectV2ToRepository($input: LinkProjectV2ToRepositoryInput!) {
             linkProjectV2ToRepository(input: $input) {
                 repository {
@@ -88,8 +83,7 @@ def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> 
                 }
             }
         }
-    """
-    )
+    """)
 
     # Variables for the mutation
     link_mutation_variables = {
@@ -101,7 +95,7 @@ def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> 
 
     try:
         # Execute the mutation
-        response = client.execute(link_project_mutation, variable_values=link_mutation_variables)
+        client.execute(link_project_mutation, variable_values=link_mutation_variables)
         print(f"Project with id {project_id} has been successfully linked to the repo.")
         return project_id
     except Exception as e:
@@ -110,8 +104,7 @@ def link_project_to_repo(client: Client, project_id: str, repo_node_id: str) -> 
 
 def update_project(client: Client, target_repo_name: str, project_id: str, project_title: str):
     # GraphQL Mutation for updating a project
-    update_project_mutation = gql(
-        """
+    update_project_mutation = gql("""
         mutation UpdateProjectV2($input: UpdateProjectV2Input!) {
             updateProjectV2(input: $input) {
                 projectV2 {
@@ -119,8 +112,7 @@ def update_project(client: Client, target_repo_name: str, project_id: str, proje
                 }
             }
         }
-    """
-    )
+    """)
 
     project_description = f"A collaborative board for the {target_repo_name} audit"
 
