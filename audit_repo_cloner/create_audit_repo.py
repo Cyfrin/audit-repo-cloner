@@ -15,6 +15,8 @@ from dotenv import load_dotenv
 from github import Auth, Github, GithubException, Repository
 
 from audit_repo_cloner.__version__ import __title__, __version__
+from audit_repo_cloner.audit_config import AuditConfig, load_audit_config
+from audit_repo_cloner.auditors import fetch_auditor_mapping, get_review_methods, grant_repo_access, resolve_github_handles, validate_auditors, verify_github_users_exist
 from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
 from audit_repo_cloner.github_project_utils import clone_project
@@ -32,6 +34,7 @@ SUBTREE_NAME = "report-generator-template"
 SUBTREE_PATH_PREFIX = "cyfrin-report"
 GITHUB_WORKFLOW_ACTION_NAME = "generate-report"
 CONFIG_FILE = "config.json"
+DEFAULT_AUDITS_DIR = "~/cyfrin/audits"
 
 
 @click.command()
@@ -44,12 +47,14 @@ CONFIG_FILE = "config.json"
 @click.option("--organization", help="Your GitHub organization name in which to clone the repo.", default=os.getenv("GITHUB_ORGANIZATION"))
 @click.option("--gitlab-token", help="Your GitLab token for cloning private GitLab source repos.", default=os.getenv("GITLAB_ACCESS_TOKEN"))
 @click.option("--gitlab-hosts", help="Comma-separated list of additional GitLab hostnames.", default=os.getenv("GITLAB_HOSTS"))
+@click.option("--audits-dir", help=f"Local directory into which the report branch of the new repo is checked out (default: {DEFAULT_AUDITS_DIR}).", default=os.getenv("AUDITS_DIR"))
 def create_audit_repo(
     config_file: str = CONFIG_FILE,
     github_token: str = None,
     organization: str = None,
     gitlab_token: str = None,
     gitlab_hosts: str = None,
+    audits_dir: str = None,
 ):
     """This function clones multiple repositories and prepares them for a Cyfrin audit using the provided configuration.
 
@@ -65,34 +70,44 @@ def create_audit_repo(
     if not os.path.exists(config_file):
         raise click.UsageError(f"Config file {config_file} not found. Please create one based on config.json.example.")
 
-    with open(config_file, "r") as f:
-        config = json.load(f)
+    try:
+        config = load_audit_config(config_file)
+    except (ValueError, json.JSONDecodeError) as e:
+        raise click.UsageError(f"Invalid config file {config_file}: {e}")
 
-    # Extract config values
-    target_repo_name = config.get("targetRepoName")
-    project_title = config.get("projectTitle")
-    auditors = config.get("auditors")
-    repositories = config.get("repositories", [])
-
-    if not repositories:
-        raise click.UsageError("No repositories specified in the config file.")
-
-    if not target_repo_name or not auditors:
-        raise click.UsageError("Target repo name and auditors must be provided in the config file.")
+    target_repo_name = config.target_repo_name
+    repositories = config.repositories
 
     github_token, organization = prompt_for_token_and_org(github_token, organization)
     if not github_token or not organization:
         raise click.UsageError("GitHub token and organization must be provided either through environment variables or as options.")
 
-    # Resolve GitLab token from .env (load_dotenv already called by prompt_for_token_and_org)
+    # Resolve GitLab token and audits dir from .env (load_dotenv already called by prompt_for_token_and_org)
     if not gitlab_token:
         gitlab_token = os.getenv("GITLAB_ACCESS_TOKEN")
+    if not audits_dir:
+        audits_dir = os.getenv("AUDITS_DIR") or DEFAULT_AUDITS_DIR
     extra_gitlab_hosts = [h.strip() for h in (gitlab_hosts or "").split(",") if h.strip()]
 
-    # Validate tokens for all source repos before creating the target repo
-    validate_tokens_for_repos(repositories, github_token, gitlab_token, extra_gitlab_hosts)
+    # Validate tokens and auditors before creating the target repo
+    github = Github(auth=Auth.Token(github_token))
+    try:
+        validate_tokens_for_repos(repositories, github_token, gitlab_token, extra_gitlab_hosts)
+        auditor_mapping = fetch_auditor_mapping(github)
+        validate_auditors(config.auditors, auditor_mapping)
+        github_handles = resolve_github_handles(config.auditors, auditor_mapping)
+        verify_github_users_exist(github, github_handles)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    review_methods = get_review_methods(config.auditors, auditor_mapping)
 
-    auditors_list: List[str] = [a.strip() for a in auditors.split(" ")]
+    print(f"Repository:     {organization}/{target_repo_name}")
+    print(f"Project board:  {config.project_title}")
+    print(f"Team / project: {config.team_name} / {config.project_name}")
+    print(f"Timeline:       {config.review_timeline}")
+    print(f"Review methods: {review_methods}")
+    print(f"Auditors:       {', '.join(config.auditors)} (GitHub: {', '.join(github_handles)})")
+
     subtree_path = f"{SUBTREE_PATH_PREFIX}/{SUBTREE_NAME}"
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -127,7 +142,7 @@ def create_audit_repo(
         repo = add_issue_template_to_repo(repo)
         repo = add_lint_issues_workflow_to_repo(repo, branch_name=actual_branch)
         repo = replace_labels_in_repo(repo)
-        repo = create_branches_for_auditors(repo, auditors_list, repo.get_commits()[0].sha)
+        repo = create_branches_for_auditors(repo, config.auditors, repo.get_commits()[0].sha)
         repo = create_report_branch(repo, repo.get_commits()[0].sha)
         repo = add_subtree(
             repo,
@@ -135,12 +150,21 @@ def create_audit_repo(
             organization,
             temp_dir,
             subtree_path,
-            repositories,
+            config,
+            review_methods,
             github_token,
             default_branch=actual_branch,
         )
         repo = set_up_ci(repo, subtree_path)
-        set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, project_title)
+        project_id = set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, config.project_title)
+
+    try:
+        grant_repo_access(github, organization, repo, github_handles, github_token, project_id)
+    except GithubException as e:
+        log.error(f"Error granting auditors access to {target_repo_name}: {e}")
+        log.warning("Please add the auditors team and invite external auditors manually.")
+
+    check_out_report_branch(organization, target_repo_name, audits_dir)
 
     print("Done!")
 
@@ -505,7 +529,8 @@ def add_subtree(
     organization: str,
     repo_path: str,
     subtree_path: str,
-    repositories: List[dict],
+    config: AuditConfig,
+    review_methods: str,
     github_token: str = None,
     default_branch: str = MAIN_BRANCH_NAME,
 ):
@@ -547,39 +572,8 @@ def add_subtree(
         except Exception as e:
             log.warning(f"Error moving workflow file: {e}")
 
-        # Update summary_information.conf
-        summary_path = f"{repo_path}/{subtree_path}/source/summary_information.conf"
-        if os.path.exists(summary_path):
-            with open(summary_path, "r") as f:
-                summary_information = f.read()
-
-            # Update repository information for all repositories
-            for i, repo_info in enumerate(repositories[:3], start=1):  # Max 3 repositories
-                suffix = "" if i == 1 else f"_{i}"
-                summary_information = re.sub(
-                    rf"^project_github{suffix}\s*=.*$",
-                    f"project_github{suffix} = {repo_info['sourceUrl']}",
-                    summary_information,
-                    flags=re.MULTILINE,
-                )
-                summary_information = re.sub(
-                    rf"^commit_hash{suffix}\s*=.*$",
-                    f"commit_hash{suffix} = {repo_info['commitHash']}",
-                    summary_information,
-                    flags=re.MULTILINE,
-                )
-
-            summary_information = re.sub(
-                r"^private_github\s*=.*$",
-                f"private_github = https://github.com/{organization}/{target_repo_name}.git",
-                summary_information,
-                flags=re.MULTILINE,
-            )
-
-            with open(summary_path, "w") as f:
-                f.write(summary_information)
-        else:
-            log.warning(f"Summary information file not found at {summary_path}")
+        # Fill in summary_information.conf, auditors and scope
+        fill_report_source(os.path.join(repo_path, subtree_path, "source"), config, organization, target_repo_name, review_methods)
 
         # Commit and push changes
         subprocess.run(f"git -C {repo_path} add .", shell=True)
@@ -603,6 +597,61 @@ def add_subtree(
         return repo
 
     return repo
+
+
+def _set_conf_value(conf: str, key: str, value: str) -> str:
+    """Replaces the value of `key = ...` in summary_information.conf; lambda avoids regex escapes in the value."""
+    return re.sub(rf"^{key}\s*=.*$", lambda _: f"{key} = {value}", conf, flags=re.MULTILINE)
+
+
+def fill_report_source(source_dir: str, config: AuditConfig, organization: str, target_repo_name: str, review_methods: str):
+    """Fills the report-generator-template source files with the audit details from the config."""
+    summary_path = os.path.join(source_dir, "summary_information.conf")
+    if os.path.exists(summary_path):
+        with open(summary_path, "r") as f:
+            summary_information = f.read()
+
+        # Update repository information for all repositories
+        for i, repo_info in enumerate(config.repositories[:3], start=1):  # Max 3 repositories
+            suffix = "" if i == 1 else f"_{i}"
+            summary_information = _set_conf_value(summary_information, f"project_github{suffix}", repo_info["sourceUrl"])
+            summary_information = _set_conf_value(summary_information, f"commit_hash{suffix}", repo_info["commitHash"])
+
+        summary_information = _set_conf_value(summary_information, "private_github", f"https://github.com/{organization}/{target_repo_name}.git")
+        summary_information = _set_conf_value(summary_information, "project_name", config.project_name)
+        summary_information = _set_conf_value(summary_information, "team_name", config.team_name)
+        summary_information = _set_conf_value(summary_information, "team_website", config.team_website)
+        summary_information = _set_conf_value(summary_information, "review_timeline", config.review_timeline)
+        summary_information = _set_conf_value(summary_information, "review_methods", review_methods)
+
+        with open(summary_path, "w") as f:
+            f.write(summary_information)
+    else:
+        log.warning(f"Summary information file not found at {summary_path}")
+
+    with open(os.path.join(source_dir, "lead_auditors.md"), "w") as f:
+        f.write("\n".join(config.auditors) + "\n")
+
+    with open(os.path.join(source_dir, "audit_scope.md"), "w") as f:
+        f.write(config.scope_markdown)
+
+
+def check_out_report_branch(organization: str, target_repo_name: str, audits_dir: str):
+    """Clones the report branch of the new repo into audits_dir for local report editing."""
+    destination = os.path.join(os.path.expanduser(audits_dir), target_repo_name)
+    if os.path.exists(destination):
+        log.warning(f"{destination} already exists; skipping local checkout of the report branch.")
+        return
+
+    # Plain URL so the token isn't persisted in .git/config; relies on the user's git credential helper
+    repo_url = f"https://github.com/{organization}/{target_repo_name}.git"
+    clone_command = ["git", "clone", "--branch", REPORT_BRANCH_NAME, repo_url, destination]
+    clone_result = subprocess.run(clone_command, check=False, capture_output=True, text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    if clone_result.returncode != 0:
+        log.warning(f"Failed to check out {REPORT_BRANCH_NAME} branch into {destination}: {clone_result.stderr.strip()}")
+        log.warning(f"Check it out manually with: {' '.join(clone_command)}")
+    else:
+        print(f"Checked out {REPORT_BRANCH_NAME} branch into {destination}")
 
 
 def set_up_ci(repo, subtree_path: str):
@@ -801,12 +850,13 @@ def set_up_project_board(repo: Repository, github_token: str, organization: str,
     if not project_title:
         project_title = "DEFAULT PROJECT"
     try:
-        clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
+        project_id = clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
         print("Project board has been set up successfully!")
+        return project_id
     except Exception as e:
         print(f"Error occurred while setting up project board: {str(e)}")
         print("Please set up project board manually.")
-    return
+    return None
 
 
 if __name__ == "__main__":

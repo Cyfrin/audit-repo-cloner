@@ -1,0 +1,5 @@
+The audit scope was limited to:
+```
+src/Contract1.sol
+src/Contract2.sol
+```

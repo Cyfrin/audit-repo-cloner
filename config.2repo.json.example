@@ -1,7 +1,11 @@
 {
-  "targetRepoName": "audit-2026-02-myproject",
-  "projectTitle": "[Audit] My Project (2026-02)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://github.com/username/main-repo",

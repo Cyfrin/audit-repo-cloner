@@ -164,3 +164,6 @@ config.json
 
 # Claude Code
 .claude/
+
+# Audit scope with private data
+scope.md

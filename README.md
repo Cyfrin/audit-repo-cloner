@@ -11,7 +11,10 @@ A Python package to clone a repo and automatically prepare it for [Cyfrin](https
 - Create tags for each source repository
 - Create branches for auditors and final report
 - Add [report-generator-template](https://github.com/Cyfrin/report-generator-template)
+- Fill in the report's summary information, lead auditors and audit scope
 - Set up GitHub project board
+- Give the `auditors` team admin access to the repo and project board, and invite external auditors with write access
+- Check out the report branch locally
 - Remove GitHub Actions and GitLab CI from source repositories for security
 
 ## Quick Start
@@ -32,6 +35,9 @@ uv sync --locked
 ```bash
 cp .env.example .env
 ```
+The token needs the `repo`, `workflow`, `project` and `read:org` scopes, and its owner must be able to manage the organization's `auditors` team (e.g. an organization owner) so the team can be given access to the new repo and project board.
+
+The `report` branch of the new repo is checked out into `~/cyfrin/audits/<repo name>`; set `AUDITS_DIR` or pass `--audits-dir` to use a different directory.
 
 4. Create a `config.json` file:
 ```bash
@@ -48,12 +54,36 @@ cp config.gitlab.json.example config.json
 cp config.mixed.json.example config.json
 ```
 
-5. Edit `config.json` with your repository details; one repo with no subfolder in the generated repo:
+5. Edit `config.json` with your audit details:
+
+| Field | Description |
+|-------|-------------|
+| `teamName` | Client name, e.g. `Securitize` |
+| `projectName` | Project name, e.g. `Tempo Async Vault` |
+| `teamWebsite` | Client website |
+| `startDate` / `endDate` | Audit dates as `YYYY-MM-DD` |
+| `scopeFile` | Markdown file copied as-is into `audit_scope.md`, relative to the config file (default `scope.md`; see `scope.md.example`) |
+| `auditors` | Space-separated lead auditors; each must be an entry in [auditors.json](https://github.com/Cyfrin/report-generator-template/blob/main/source/auditors.json) with a `github` username |
+| `repositories` | Source repositories to audit |
+
+Everything else is derived. The title is `teamName projectName`, or just `projectName` if it already contains `teamName` (the same rule the report generator uses for the report title):
+- repo name: `audit-<startDate year-month>-<slugified title>`, e.g. `audit-2026-10-securitize-tempo-async-vault`
+- project board title: `[Audit] <title> (<startDate year-month>)`
+- `review_timeline`: e.g. `Oct 4th - Oct 5th, 2026`
+- `review_methods`: `Manual Review`, plus `Formal Verification` if any auditor has the `Formal Verification` suffix in `auditors.json`
+
+The `Cyfrin/auditors` team gets admin access to the new repo, and any auditor who isn't in that team is invited with write access.
+
+One repo with no subfolder in the generated repo:
 ```json
 {
-  "targetRepoName": "audit-2026-02-myproject",
-  "projectTitle": "[Audit] My Project (2026-02)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://github.com/username/protocol-repo",
@@ -66,9 +96,13 @@ cp config.mixed.json.example config.json
 Two repos each with a subfolder in the generated repo:
 ```json
 {
-  "targetRepoName": "audit-2026-02-myproject",
-  "projectTitle": "[Audit] My Project (2026-02)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://github.com/username/main-repo",
@@ -123,9 +157,13 @@ URLs containing "gitlab" in the hostname are auto-detected. Just use the GitLab 
 
 ```json
 {
-  "targetRepoName": "audit-2026-04-myproject",
-  "projectTitle": "[Audit] My Project (2026-04)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://gitlab.com/group/subgroup/repo",
@@ -150,9 +188,13 @@ For self-hosted instances whose hostnames **do not** contain "gitlab" (e.g. `git
 
 ```json
 {
-  "targetRepoName": "audit-2026-04-myproject",
-  "projectTitle": "[Audit] My Project (2026-04)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://git.mycompany.com/group/repo",
@@ -174,9 +216,13 @@ GITLAB_HOSTS=git.mycompany.com
 Then `sourceType` is not needed in the config:
 ```json
 {
-  "targetRepoName": "audit-2026-04-myproject",
-  "projectTitle": "[Audit] My Project (2026-04)",
-  "auditors": "auditor1 auditor2 auditor3",
+  "teamName": "My Team",
+  "projectName": "My Project",
+  "teamWebsite": "https://myteam.finance",
+  "startDate": "2026-02-02",
+  "endDate": "2026-02-13",
+  "scopeFile": "scope.md",
+  "auditors": "Dacian Kage",
   "repositories": [
     {
       "sourceUrl": "https://git.mycompany.com/group/repo",

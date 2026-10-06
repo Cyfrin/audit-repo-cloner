@@ -140,6 +140,40 @@ def update_project(client: Client, target_repo_name: str, project_id: str, proje
         raise Exception(f"Error occurred while updating the project board description: {str(e)}")
 
 
+def add_team_to_project(github_token: str, project_id: str, team_node_id: str, role: str):
+    """Gives a team access to a project. Referencing a team requires the token to have the read:org scope."""
+    client = Client(transport=_make_transport(github_token), fetch_schema_from_transport=False)
+    update_collaborators_mutation = gql("""
+        mutation UpdateProjectV2Collaborators($input: UpdateProjectV2CollaboratorsInput!) {
+            updateProjectV2Collaborators(input: $input) {
+                collaborators(first: 1) {
+                    totalCount
+                }
+            }
+        }
+    """)
+
+    variables = {
+        "input": {
+            "projectId": project_id,
+            "collaborators": [{"teamId": team_node_id, "role": role}],
+        }
+    }
+
+    try:
+        client.execute(update_collaborators_mutation, variable_values=variables)
+    except Exception as e:
+        raise Exception(f"Error occurred while adding team to the project: {str(e)}")
+
+
+def _make_transport(github_token: str) -> RequestsHTTPTransport:
+    return RequestsHTTPTransport(
+        url="https://api.github.com/graphql",
+        headers={"Authorization": f"Bearer {github_token}"},
+        use_json=True,
+    )
+
+
 def clone_project(repo: Repository, github_token: str, organization: str, target_repo_name: str, project_template_id: str, project_title: str) -> str:
     """
     Clone a GitHub project from the template
@@ -156,12 +190,7 @@ def clone_project(repo: Repository, github_token: str, organization: str, target
     try:
         repo.edit(has_projects=True)
 
-        transport = RequestsHTTPTransport(
-            url="https://api.github.com/graphql",
-            headers={"Authorization": f"Bearer {github_token}"},
-            use_json=True,
-        )
-        client = Client(transport=transport, fetch_schema_from_transport=False)
+        client = Client(transport=_make_transport(github_token), fetch_schema_from_transport=False)
 
         repo_node_id, org_node_id, project_template_id = get_node_ids(client, organization, target_repo_name, int(project_template_id))
 

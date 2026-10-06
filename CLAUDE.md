@@ -26,6 +26,8 @@ uv run python -m audit_repo_cloner --config-file config.1repo.json
 - Environment variables: `GITHUB_ACCESS_TOKEN` (required), `GITHUB_ORGANIZATION`, `GITLAB_ACCESS_TOKEN` (optional), `GITLAB_HOSTS` (optional)
 - Optionally use `.env` file (see `.env.example`) but environment variables are preferred
 - Config file examples: `config.1repo.json.example`, `config.2repo.json.example`, `config.gitlab.json.example`, `config.mixed.json.example`
+- `AUDITS_DIR` (optional, default `~/cyfrin/audits`) - local dir where the `report` branch is checked out after cloning
+- Config needs `teamName`, `projectName`, `teamWebsite`, `startDate`, `endDate`, `auditors`, `repositories` and a scope markdown file (`scopeFile`, default `scope.md`); repo name and project board title are derived (see `audit_config.py`)
 
 ## Architecture
 
@@ -37,14 +39,20 @@ The main workflow lives in `create_audit_repo.py` and runs sequentially:
 5. `merge_submodules()` - Consolidates .gitmodules from all subtrees
 6. `replace_labels_in_repo()` - Removes default labels, adds severity/status labels
 7. `create_branches_for_auditors()` - Creates `audit/<name>` branches
-8. `add_subtree()` - Adds report-generator-template on the `report` branch
+8. `add_subtree()` - Adds report-generator-template on the `report` branch and fills its source files via `fill_report_source()`
 9. `set_up_ci()` / `set_up_project_board()` - Final configuration
+10. `grant_repo_access()` - Gives `Cyfrin/auditors` admin on the repo and project board, invites auditors outside that team with write
+11. `check_out_report_branch()` - Clones the `report` branch into `AUDITS_DIR`
+
+Before anything is created, the config is validated and auditors are checked against `source/auditors.json` fetched from `Cyfrin/report-generator-template@main` (every auditor needs a `github` username there).
 
 ### Key files
 
 | File | Purpose |
 |------|---------|
 | `create_audit_repo.py` | Main CLI and workflow orchestration (Click) |
+| `audit_config.py` | Config parsing/validation and derived names (repo, board title, timeline) |
+| `auditors.py` | Auditor validation against report-generator-template's `auditors.json`, repo access |
 | `source_utils.py` | Platform detection (GitHub/GitLab), URL auth/sanitization |
 | `github_project_utils.py` | GitHub Projects v2 setup via GraphQL |
 | `constants.py` | Issue templates, label definitions, severity colors |
@@ -60,6 +68,7 @@ The main workflow lives in `create_audit_repo.py` and runs sequentially:
 
 ## Gotchas
 
+- `build_title_text()`/`slugify()` in `audit_config.py` mirror `scripts/helpers.py` in report-generator-template (which names the report artifacts); keep them in sync.
 - `MAIN_BRANCH_NAME` is hardcoded to `"main"` but GitHub repos may default to `master`. The `initialize_repo()` function handles this fallback and returns the actual branch name - always use this returned value downstream rather than the constant.
 - The tool does heavy shell-out via `subprocess.run()` for git operations. Many calls use `check=False` so failures are logged but don't halt execution.
 - GitHub API has a propagation delay after repo creation - there's a 5-second sleep to handle this.
