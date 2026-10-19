@@ -351,6 +351,10 @@ def merge_submodules(repo_path: str):
         # Add and commit the changes
         try:
             subprocess.run(["git", "-C", repo_path, "add", ".gitmodules"], check=True)
+            # Single-subtree-at-root case rewrites .gitmodules unchanged; nothing to commit
+            if subprocess.run(["git", "-C", repo_path, "diff", "--cached", "--quiet", "--", ".gitmodules"]).returncode == 0:
+                log.info(".gitmodules already up to date")
+                return
             subprocess.run(["git", "-C", repo_path, "commit", "-m", "Update .gitmodules with all submodules"], check=True)
             subprocess.run(["git", "-C", repo_path, "push"], check=True)
             log.info("Updated .gitmodules with all submodules")
@@ -540,16 +544,11 @@ def add_subtree(
     try:
         print(f"Adding subtree {SUBTREE_NAME}...")
 
-        # Create report branch if it doesn't exist
-        check_branch = subprocess.run(f"git -C {repo_path} branch --list {REPORT_BRANCH_NAME}", shell=True, capture_output=True, text=True)
-
-        if REPORT_BRANCH_NAME not in check_branch.stdout:
-            print(f"Creating {REPORT_BRANCH_NAME} branch...")
-            subprocess.run(f"git -C {repo_path} checkout {default_branch}", shell=True, check=False)
-            subprocess.run(f"git -C {repo_path} checkout -b {REPORT_BRANCH_NAME}", shell=True, check=False)
-        else:
-            print(f"Branch {REPORT_BRANCH_NAME} already exists, checking it out...")
-            subprocess.run(f"git -C {repo_path} checkout {REPORT_BRANCH_NAME}", shell=True, check=False)
+        # Base the report branch on the remote default branch: commits made via the API
+        # (issue templates, lint workflow) aren't in the local clone, and we force push below
+        print(f"Creating {REPORT_BRANCH_NAME} branch...")
+        subprocess.run(f"git -C {repo_path} fetch origin {default_branch}", shell=True, check=False)
+        subprocess.run(f"git -C {repo_path} checkout -B {REPORT_BRANCH_NAME} origin/{default_branch}", shell=True, check=False)
 
         # Add the subtree to the repo
         authenticated_subtree_url = SUBTREE_URL.replace("https://", f"https://{github_token}@")
