@@ -239,6 +239,13 @@ Each finding is a GitHub issue with a `Severity:` label, one `{cyfrin}` label an
 """
 
 
+def combine_readmes(audit_readme: str, source_readme: str) -> str:
+    """Audit README first so the filter links show on the repo page, then the source repo's README (if any)."""
+    if audit_readme == source_readme or not source_readme.strip():
+        return audit_readme
+    return f"{audit_readme.rstrip()}\n\n---\n\n{source_readme}"
+
+
 def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organization: str, target_repo_name: str):
     """Initialize the target repository with a README file"""
     repo_path = os.path.join(temp_dir, target_repo_name)
@@ -484,6 +491,11 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
         # If cloning to root, move all contents from temp folder to root
         if clone_to_root:
             log.info("Moving contents from temp folder to root...")
+            # The source README replaces the audit README, so keep the audit README (filter links) above it
+            readme_path = os.path.join(repo_path, "README.md")
+            with open(readme_path) as f:
+                audit_readme = f.read()
+
             # Get all items in the temp subtree folder
             items = os.listdir(subtree_path)
             for item in items:
@@ -500,6 +512,13 @@ def clone_source_repo_as_subtree(repo: Repository, temp_dir: str, github_token: 
             # Remove the now-empty temp folder
             if os.path.exists(subtree_path) and not os.listdir(subtree_path):
                 os.rmdir(subtree_path)
+
+            source_readme = ""
+            if os.path.exists(readme_path):
+                with open(readme_path) as f:
+                    source_readme = f.read()
+            with open(readme_path, "w") as f:
+                f.write(combine_readmes(audit_readme, source_readme))
 
             # Commit the move
             subprocess.run(["git", "-C", repo_path, "add", "."], check=False)

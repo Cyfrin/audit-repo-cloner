@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qs, urlparse
 
-from audit_repo_cloner.create_audit_repo import build_readme
+from audit_repo_cloner.create_audit_repo import build_readme, combine_readmes
 
 
 def _links() -> dict[str, str]:
@@ -28,3 +28,13 @@ def test_other_links():
     assert 'label:"Cyfrin: Peer Reviewed" label:"Protocol: Proposed Fix"' in links["Fixes awaiting verification"]
     assert 'label:"Cyfrin: Peer Reviewed" label:"Protocol: Proposed Invalid"' in links["Disputed findings"]
     assert 'label:"Cyfrin: Draft"' in links["Drafts awaiting peer review"]
+
+
+def test_combine_readmes_keeps_audit_readme_first():
+    assert combine_readmes("# audit\n", "# source\n") == "# audit\n\n---\n\n# source\n"
+
+
+def test_combine_readmes_without_source_readme():
+    # A source repo without a README leaves the audit README in place
+    assert combine_readmes("# audit\n", "# audit\n") == "# audit\n"
+    assert combine_readmes("# audit\n", "") == "# audit\n"
