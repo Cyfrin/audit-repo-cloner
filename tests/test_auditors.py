@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from audit_repo_cloner import auditors
 from audit_repo_cloner.auditors import get_review_methods, grant_repo_access, resolve_github_handles, validate_auditors
 
 MAPPING = {
@@ -71,8 +70,6 @@ class FakeUser:
 
 
 class FakeTeam:
-    node_id = "T_team"
-
     def __init__(self, members):
         self.members = members
         self.repo_permissions = {}
@@ -112,31 +109,17 @@ class FakeRepo:
         self.invited[handle] = permission
 
 
-@pytest.fixture
-def project_calls(monkeypatch):
-    calls = []
-    monkeypatch.setattr(auditors, "add_team_to_project", lambda token, project_id, team_node_id, role: calls.append((project_id, team_node_id, role)))
-    return calls
-
-
 class TestGrantRepoAccess:
-    def test_team_gets_admin_and_only_external_auditors_invited(self, project_calls):
+    def test_team_gets_admin_and_only_external_auditors_invited(self):
         team = FakeTeam(["DevDacian", "kage-gh"])
         repo = FakeRepo()
-        grant_repo_access(FakeGithub(team), "Cyfrin", repo, ["devdacian", "kage-gh", "eagle-gh"], "token", "PVT_project")
+        grant_repo_access(FakeGithub(team), "Cyfrin", repo, ["devdacian", "kage-gh", "eagle-gh"])
         assert team.repo_permissions == {repo.name: "admin"}
         assert repo.invited == {"eagle-gh": "push"}
-        assert project_calls == [("PVT_project", "T_team", "ADMIN")]
 
-    def test_no_project_board(self, project_calls):
-        grant_repo_access(FakeGithub(FakeTeam([])), "Cyfrin", FakeRepo(), [], "token", None)
-        assert project_calls == []
-
-    def test_project_failure_does_not_stop_invites(self, monkeypatch):
-        def fail(*args):
-            raise Exception("INSUFFICIENT_SCOPES")
-
-        monkeypatch.setattr(auditors, "add_team_to_project", fail)
+    def test_no_auditors_to_invite(self):
+        team = FakeTeam([])
         repo = FakeRepo()
-        grant_repo_access(FakeGithub(FakeTeam([])), "Cyfrin", repo, ["eagle-gh"], "token", "PVT_project")
-        assert repo.invited == {"eagle-gh": "push"}
+        grant_repo_access(FakeGithub(team), "Cyfrin", repo, [])
+        assert team.repo_permissions == {repo.name: "admin"}
+        assert repo.invited == {}

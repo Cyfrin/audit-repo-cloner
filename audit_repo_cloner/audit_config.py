@@ -40,17 +40,13 @@ class AuditConfig:
         return f"audit-{self.year_month}-{slugify(self.title_text)}"
 
     @property
-    def project_title(self) -> str:
-        return f"[Audit] {self.title_text} ({self.year_month})"
-
-    @property
     def review_timeline(self) -> str:
         return format_review_timeline(self.start_date, self.end_date)
 
 
 def build_title_text(team_name: str, project_name: str) -> str:
     """Mirrors build_title_text() in report-generator-template/scripts/helpers.py; keep them in sync
-    so the repo name, project board title and report title/filenames all agree."""
+    so the repo name and report title/filenames agree."""
     if team_name.lower() in project_name.lower():
         return project_name
     return team_name + " " + project_name
@@ -103,7 +99,7 @@ def parse_audit_config(config: dict, config_dir: str) -> AuditConfig:
     """Validates the raw config.json contents; raises ValueError describing the first problem found."""
     legacy = [field for field in LEGACY_FIELDS if field in config]
     if legacy:
-        raise ValueError(f"{', '.join(legacy)} are no longer supported; the repo name and project board title are derived from teamName, projectName and startDate. Please remove them from the config file.")
+        raise ValueError(f"{', '.join(legacy)} are no longer supported; the repo name is derived from teamName, projectName and startDate, and no project board is created. Please remove them from the config file.")
 
     team_name = _required_string(config, "teamName")
     project_name = _required_string(config, "projectName")

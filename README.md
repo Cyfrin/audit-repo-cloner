@@ -6,14 +6,14 @@ A Python package to clone a repo and automatically prepare it for [Cyfrin](https
 
 - Clone one or more source repositories into a target repository
 - Add issue templates for audit findings
-- Configure labels for severity and status
+- Configure `Severity:`, `Cyfrin:` (status) and `Protocol:` (client response) labels; adding a `Cyfrin:` or `Protocol:` label removes the previous one, and peer-reviewed findings without a client response get `Protocol: Needs Response` automatically
+- Add a README with issue filter links for the client and auditors
 - Add source repositories as git subtrees
 - Create tags for each source repository
 - Create branches for auditors and final report
 - Add [report-generator-template](https://github.com/Cyfrin/report-generator-template)
 - Fill in the report's summary information, lead auditors and audit scope
-- Set up GitHub project board
-- Give the `auditors` team admin access to the repo and project board, and invite external auditors with write access
+- Give the `auditors` team admin access to the repo, and invite external auditors with write access
 - Check out the report branch locally
 - Remove GitHub Actions and GitLab CI from source repositories for security
 
@@ -35,7 +35,7 @@ uv sync --locked
 ```bash
 cp .env.example .env
 ```
-The token needs the `repo`, `workflow`, `project` and `read:org` scopes, and its owner must be able to manage the organization's `auditors` team (e.g. an organization owner) so the team can be given access to the new repo and project board.
+The token needs the `repo`, `workflow` and `read:org` scopes, and its owner must be able to manage the organization's `auditors` team (e.g. an organization owner) so the team can be given access to the new repo.
 
 The `report` branch of the new repo is checked out into `~/cyfrin/audits/<repo name>`; set `AUDITS_DIR` or pass `--audits-dir` to use a different directory.
 
@@ -68,7 +68,6 @@ cp config.mixed.json.example config.json
 
 Everything else is derived. The title is `teamName projectName`, or just `projectName` if it already contains `teamName` (the same rule the report generator uses for the report title):
 - repo name: `audit-<startDate year-month>-<slugified title>`, e.g. `audit-2026-10-securitize-tempo-async-vault`
-- project board title: `[Audit] <title> (<startDate year-month>)`
 - `review_timeline`: e.g. `Oct 4th - Oct 5th, 2026`
 - `review_methods`: `Manual Review`, plus `Formal Verification` if any auditor has the `Formal Verification` suffix in `auditors.json`
 

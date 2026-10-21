@@ -9,6 +9,7 @@ import tempfile
 import time
 from datetime import date
 from typing import List
+from urllib.parse import quote_plus
 
 import click
 from dotenv import load_dotenv
@@ -17,14 +18,11 @@ from github import Auth, Github, GithubException, Repository
 from audit_repo_cloner.__version__ import __title__, __version__
 from audit_repo_cloner.audit_config import AuditConfig, load_audit_config
 from audit_repo_cloner.auditors import fetch_auditor_mapping, get_review_methods, grant_repo_access, resolve_github_handles, validate_auditors, verify_github_users_exist
-from audit_repo_cloner.constants import DEFAULT_LABELS, ISSUE_TEMPLATE, PROJECT_TEMPLATE_ID, SEVERITY_DATA
+from audit_repo_cloner.constants import CYFRIN_LABEL_PREFIX, DEFAULT_LABELS, ISSUE_TEMPLATE, PROTOCOL_LABEL_PREFIX, SEVERITY_DATA
 from audit_repo_cloner.create_action import create_action
-from audit_repo_cloner.github_project_utils import clone_project
 from audit_repo_cloner.source_utils import ALL_CI_PATHS, clean_source_url, detect_source_platform, make_source_clone_urls, sanitize_url, validate_tokens_for_repos
 
-# Configure logging - suppress gql logs
 log.basicConfig(level=log.INFO)
-log.getLogger("gql.transport.requests").setLevel(log.WARNING)
 
 # Globals are shit. We should refactor again in the future...
 REPORT_BRANCH_NAME = "report"
@@ -102,7 +100,6 @@ def create_audit_repo(
     review_methods = get_review_methods(config.auditors, auditor_mapping)
 
     print(f"Repository:     {organization}/{target_repo_name}")
-    print(f"Project board:  {config.project_title}")
     print(f"Team / project: {config.team_name} / {config.project_name}")
     print(f"Timeline:       {config.review_timeline}")
     print(f"Review methods: {review_methods}")
@@ -156,10 +153,9 @@ def create_audit_repo(
             default_branch=actual_branch,
         )
         repo = set_up_ci(repo, subtree_path)
-        project_id = set_up_project_board(repo, github_token, organization, target_repo_name, PROJECT_TEMPLATE_ID, config.project_title)
 
     try:
-        grant_repo_access(github, organization, repo, github_handles, github_token, project_id)
+        grant_repo_access(github, organization, repo, github_handles)
     except GithubException as e:
         log.error(f"Error granting auditors access to {target_repo_name}: {e}")
         log.warning("Please add the auditors team and invite external auditors manually.")
@@ -206,6 +202,43 @@ def create_target_repo(github_token: str, organization: str, target_repo_name: s
         exit()
 
 
+def _issues_url(organization: str, target_repo_name: str, query: str) -> str:
+    return f"https://github.com/{organization}/{target_repo_name}/issues?q={quote_plus(f'is:issue is:open {query} sort:created-asc')}"
+
+
+def build_readme(organization: str, target_repo_name: str) -> str:
+    """README for the audit repo, with issue filter links for the protocol team and auditors."""
+    cyfrin, protocol = CYFRIN_LABEL_PREFIX.strip(), PROTOCOL_LABEL_PREFIX.strip()
+    peer_reviewed = f'label:"{CYFRIN_LABEL_PREFIX}Peer Reviewed"'
+    links = [
+        ("Findings to review", f'label:"{PROTOCOL_LABEL_PREFIX}Needs Response"', "peer-reviewed findings awaiting a protocol team response"),
+        ("All peer-reviewed findings", f'-label:"{CYFRIN_LABEL_PREFIX}Draft"', "every finding except drafts"),
+        ("Fixes awaiting verification", f'{peer_reviewed} label:"{PROTOCOL_LABEL_PREFIX}Proposed Fix"', "proposed fixes Cyfrin hasn't verified yet"),
+        ("Disputed findings", f'{peer_reviewed} label:"{PROTOCOL_LABEL_PREFIX}Proposed Invalid"', "findings the protocol team proposed as invalid"),
+        ("Drafts awaiting peer review", f'label:"{CYFRIN_LABEL_PREFIX}Draft"', "unreviewed findings, which may turn out to be invalid"),
+    ]
+    link_list = "\n".join(f"- [{title}]({_issues_url(organization, target_repo_name, query)}) - {description}" for title, query, description in links)
+
+    return f"""# {target_repo_name}
+
+## Getting Started
+Clone the repository:
+
+```bash
+git clone --recurse-submodules [repository-url]
+```
+The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
+
+## Findings
+Each finding is a GitHub issue with a `Severity:` label, one `{cyfrin}` label and, once the protocol team has responded, one `{protocol}` label. Adding a `{cyfrin}` or `{protocol}` label automatically removes the previous one.
+
+- `{cyfrin}` labels are set by Cyfrin: `Draft` → `Peer Reviewed` → `Resolved` / `Partially Resolved` / `Acknowledged`
+- `{protocol}` labels are set by the protocol team: `Will Fix`, `Proposed Fix`, `Acknowledged`, `Proposed Invalid`. `Needs Response` is added automatically to peer-reviewed findings without a response, and replaced by the response
+
+{link_list}
+"""
+
+
 def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organization: str, target_repo_name: str):
     """Initialize the target repository with a README file"""
     repo_path = os.path.join(temp_dir, target_repo_name)
@@ -220,16 +253,7 @@ def initialize_repo(repo: Repository, temp_dir: str, github_token: str, organiza
 
     # Create README.md
     with open(os.path.join(repo_path, "README.md"), "w") as f:
-        f.write(f"""# {target_repo_name}
-
-## Getting Started
-Clone the repository:
-
-```bash
-git clone --recurse-submodules [repository-url]
-```
-The source code for all audit target repositories has been merged into this repository using git subtree, ensuring that all code and history is preserved even if the original repositories are moved or deleted.
-            """)
+        f.write(build_readme(organization, target_repo_name))
 
     # Configure git
     subprocess.run(["git", "config", "user.name", "Cyfrin Bot"], cwd=repo_path, check=False)
@@ -669,37 +693,6 @@ def set_up_ci(repo, subtree_path: str):
     return repo
 
 
-def prompt_for_details(source_url: str, target_repo_name: str, commit_hash: str, auditors: str, github_token: str, organization: str, project_title: str):
-    while True:
-        prompt_counter = 1
-
-        if not source_url:
-            source_url = input(f"Hello! This script will clone the source repository and prepare it for a Cyfrin audit. Please enter the following details:\n\n{prompt_counter}) Source repo url: ")
-            prompt_counter += 1
-        if not target_repo_name:
-            target_repo_name = input(f"\n{prompt_counter}) Target repo name (leave blank to use source repo name): ")
-            prompt_counter += 1
-        if not commit_hash:
-            commit_hash = input(f"\n{prompt_counter}) Audit commit hash (be sure to copy the full SHA): ")
-            prompt_counter += 1
-        if not auditors:
-            auditors = input(f"\n{prompt_counter}) Enter the names of the auditors (separated by spaces): ")
-        if not github_token:
-            github_token = input(f"\n{prompt_counter}) Enter your Github token: ")
-            prompt_counter += 1
-        if not organization:
-            organization = input(f"\n{prompt_counter}) Enter the name of the organization to create the audit repository in: ")
-            prompt_counter += 1
-        if not project_title:
-            project_title = input(f"\n{prompt_counter}) Enter the title of the GitHub project board: ")
-            prompt_counter += 1
-
-        if source_url and commit_hash and auditors and github_token and organization and project_title:
-            break
-        print("Please fill in all the details.")
-    return source_url, target_repo_name, commit_hash, auditors, github_token, organization, project_title
-
-
 def create_audit_tag(repo, repo_path, commit_hash) -> Repository:
     log.info("Creating audit tag...")
 
@@ -840,22 +833,6 @@ def create_report_branch(repo, commit_hash) -> Repository:
             repo.delete()
             exit()
     return repo
-
-
-# IMPORTANT: project creation via REST API is not supported anymore
-# https://stackoverflow.com/questions/73268885/unable-to-create-project-in-repository-or-organisation-using-github-rest-api
-# we use a non-standard way to access GitHub's GraphQL
-def set_up_project_board(repo: Repository, github_token: str, organization: str, target_repo_name: str, project_template_id: str, project_title: str = "DEFAULT PROJECT"):
-    if not project_title:
-        project_title = "DEFAULT PROJECT"
-    try:
-        project_id = clone_project(repo, github_token, organization, target_repo_name, project_template_id, project_title)
-        print("Project board has been set up successfully!")
-        return project_id
-    except Exception as e:
-        print(f"Error occurred while setting up project board: {str(e)}")
-        print("Please set up project board manually.")
-    return None
 
 
 if __name__ == "__main__":

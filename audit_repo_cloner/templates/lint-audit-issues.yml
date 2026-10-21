@@ -7,6 +7,11 @@ on:
 permissions:
   issues: write
 
+# Runs for the same issue are queued rather than run in parallel, so label swaps don't race
+concurrency:
+  group: lint-audit-issues-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -16,11 +21,48 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
-          ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
         with:
           script: |
             const BAD_FORMAT_LABEL = 'BAD ISSUE FORMATTING';
             const COMMENT_MARKER = '<!-- lint-audit-issues -->';
+            // An issue has at most one label from each of these groups
+            const EXCLUSIVE_LABEL_PREFIXES = ['Cyfrin: ', 'Protocol: '];
+
+            const issue_number = Number(process.env.ISSUE_NUMBER);
+            const { owner, repo } = context.repo;
+
+            // Read the current labels rather than the event's, which may be stale after a queued run swapped them
+            let labels = (await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner, repo, issue_number, per_page: 100,
+            })).map(l => l.name);
+
+            // Adding a label removes the others from its group. Skip if an earlier run already
+            // removed the added label, e.g. when two labels from one group were picked at once.
+            const added = context.payload.action === 'labeled' ? context.payload.label.name : null;
+            const prefix = added && EXCLUSIVE_LABEL_PREFIXES.find(p => added.startsWith(p));
+            if (prefix && labels.includes(added)) {
+              for (const name of labels.filter(n => n.startsWith(prefix) && n !== added)) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+                } catch (e) { if (e.status !== 404) throw e; }
+              }
+              labels = labels.filter(n => !n.startsWith(prefix) || n === added);
+            }
+
+            // Peer-reviewed findings without a protocol response get the Needs Response label, so the protocol
+            // team can filter on one label. It's in the Protocol: group, so their response replaces it.
+            const NEEDS_RESPONSE_LABEL = 'Protocol: Needs Response';
+            const needsResponse = labels.includes('Cyfrin: Peer Reviewed')
+              && !labels.some(n => n.startsWith('Protocol: ') && n !== NEEDS_RESPONSE_LABEL);
+            if (needsResponse && !labels.includes(NEEDS_RESPONSE_LABEL)) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [NEEDS_RESPONSE_LABEL] });
+              labels.push(NEEDS_RESPONSE_LABEL);
+            } else if (!needsResponse && labels.includes(NEEDS_RESPONSE_LABEL)) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: NEEDS_RESPONSE_LABEL });
+              } catch (e) { if (e.status !== 404) throw e; }
+              labels = labels.filter(n => n !== NEEDS_RESPONSE_LABEL);
+            }
 
             const body = (process.env.ISSUE_BODY || '').replace(/\r\n/g, '\n');
             const lines = body.split('\n');
@@ -129,30 +171,29 @@ jobs:
               });
             }
 
-            const labels = JSON.parse(process.env.ISSUE_LABELS || '[]');
-            const hasSeverity = labels.some(n => /^Severity:\s/i.test(n));
-            const hasReportStatus = labels.some(n => /^Report Status:\s/i.test(n));
-
-            if (!hasSeverity) {
-              problems.push({
-                line: 0,
-                kind: 'missing `Severity:` label',
-                text: '(no label starting with `Severity:` is applied)',
-                fix: 'apply one of the `Severity: <level>` labels (Critical / High / Medium / Low / Informational / Gas Optimization)',
-              });
+            // Report generation needs exactly one Severity: and one Cyfrin: label
+            const REQUIRED_LABEL_GROUPS = [
+              { prefix: 'Severity:', options: 'Critical / High / Medium / Low / Informational / Gas Optimization' },
+              { prefix: 'Cyfrin:', options: 'Draft / Peer Reviewed / Resolved / Partially Resolved / Acknowledged' },
+            ];
+            for (const { prefix, options } of REQUIRED_LABEL_GROUPS) {
+              const applied = labels.filter(n => n.startsWith(prefix + ' '));
+              if (applied.length === 0) {
+                problems.push({
+                  line: 0,
+                  kind: `missing \`${prefix}\` label`,
+                  text: `(no label starting with \`${prefix}\` is applied)`,
+                  fix: `apply one of the \`${prefix} <label>\` labels (${options})`,
+                });
+              } else if (applied.length > 1) {
+                problems.push({
+                  line: 0,
+                  kind: `more than one \`${prefix}\` label`,
+                  text: applied.join(', '),
+                  fix: `keep only one \`${prefix}\` label`,
+                });
+              }
             }
-
-            if (!hasReportStatus) {
-              problems.push({
-                line: 0,
-                kind: 'missing `Report Status:` label',
-                text: '(no label starting with `Report Status:` is applied)',
-                fix: 'apply one of the `Report Status: <state>` labels',
-              });
-            }
-
-            const issue_number = Number(process.env.ISSUE_NUMBER);
-            const { owner, repo } = context.repo;
 
             const existing = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
@@ -182,7 +223,7 @@ jobs:
               '',
               list,
               '',
-              'Headings inside an issue body leak into the report TOC. Use `**Bold**` for inline section labels instead of `#`/`##`/`###` or `<hN>`. Wrapped link URLs (`](` at end of line) won\'t render as links — keep `[text](url)` on one line. Every issue must have a `Severity:` label and a `Report Status:` label applied.',
+              'Headings inside an issue body leak into the report TOC. Use `**Bold**` for inline section labels instead of `#`/`##`/`###` or `<hN>`. Wrapped link URLs (`](` at end of line) won\'t render as links — keep `[text](url)` on one line. Every issue must have exactly one `Severity:` label and one `Cyfrin:` label applied.',
               '',
               `Edit the issue body to fix and the \`${BAD_FORMAT_LABEL}\` label will clear automatically.`,
             ].join('\n');

@@ -81,7 +81,6 @@ class TestParseAuditConfig:
     def test_derives_names(self, config_dir):
         config = parse_audit_config(make_config(), config_dir)
         assert config.target_repo_name == "audit-2026-10-securitize-tempo-async-vault"
-        assert config.project_title == "[Audit] Securitize Tempo Async Vault (2026-10)"
         assert config.review_timeline == "Oct 4th - Oct 5th, 2026"
         assert config.auditors == ["Kage", "BengalCatBalu"]
         assert "src/Vault.sol" in config.scope_markdown
@@ -89,7 +88,6 @@ class TestParseAuditConfig:
     def test_team_contained_in_project(self, config_dir):
         config = parse_audit_config(make_config(teamName="Aztec", projectName="Aztec Polynomial"), config_dir)
         assert config.target_repo_name == "audit-2026-10-aztec-polynomial"
-        assert config.project_title == "[Audit] Aztec Polynomial (2026-10)"
 
     def test_auditors_extra_whitespace(self, config_dir):
         assert parse_audit_config(make_config(auditors="  Kage   Dacian "), config_dir).auditors == ["Kage", "Dacian"]
