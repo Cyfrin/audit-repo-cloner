@@ -51,14 +51,14 @@ class TestResolveGithubHandles:
 
 
 class TestGetReviewMethods:
-    def test_manual_only(self):
-        assert get_review_methods(["Dacian", "ChainDefenders"], MAPPING) == "Manual Review"
+    def test_manual_and_proprietary_ai(self):
+        assert get_review_methods(["Dacian", "ChainDefenders"], MAPPING) == "Manual Review, Proprietary AI"
 
     def test_formal_verification_auditor(self):
-        assert get_review_methods(["Dacian", "Alexzoid"], MAPPING) == "Manual Review, Formal Verification"
+        assert get_review_methods(["Dacian", "Alexzoid"], MAPPING) == "Manual Review, Proprietary AI, Formal Verification"
 
     def test_formal_verification_team_member(self):
-        assert get_review_methods(["FVTeam"], MAPPING) == "Manual Review, Formal Verification"
+        assert get_review_methods(["FVTeam"], MAPPING) == "Manual Review, Proprietary AI, Formal Verification"
 
 
 # --- grant_repo_access ---

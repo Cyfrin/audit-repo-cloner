@@ -17,6 +17,8 @@ EXTERNAL_AUDITOR_PERMISSION = "push"  # "Write" in the GitHub UI
 
 FORMAL_VERIFICATION_SUFFIX = "Formal Verification"
 MANUAL_REVIEW = "Manual Review"
+# Every audit uses Proprietary AI by default; it also shows the Head of Security Research on the report title page
+PROPRIETARY_AI = "Proprietary AI"
 
 
 def fetch_auditor_mapping(github: Github) -> Dict[str, dict]:
@@ -56,8 +58,8 @@ def resolve_github_handles(auditors: List[str], mapping: Dict[str, dict]) -> Lis
 def get_review_methods(auditors: List[str], mapping: Dict[str, dict]) -> str:
     names = list(auditors) + _individual_names(auditors, mapping)
     if any(mapping[name].get("suffix") == FORMAL_VERIFICATION_SUFFIX for name in names):
-        return f"{MANUAL_REVIEW}, {FORMAL_VERIFICATION_SUFFIX}"
-    return MANUAL_REVIEW
+        return f"{MANUAL_REVIEW}, {PROPRIETARY_AI}, {FORMAL_VERIFICATION_SUFFIX}"
+    return f"{MANUAL_REVIEW}, {PROPRIETARY_AI}"
 
 
 def verify_github_users_exist(github: Github, handles: List[str]) -> None:

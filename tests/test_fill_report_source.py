@@ -18,7 +18,7 @@ fix_commit_hash =
 project_github_2 =
 commit_hash_2 =
 review_timeline = Sep 7th - Sep 11th, 2026
-review_methods = Manual Review
+review_methods = Manual Review, Proprietary AI
 project_number =
 """
 
@@ -44,7 +44,7 @@ def test_fills_report_source(tmp_path):
     (tmp_path / "lead_auditors.md").write_text("Auditor1\nAuditor2\nTeam1\n")
     (tmp_path / "audit_scope.md").write_text("TODO")
 
-    fill_report_source(str(tmp_path), make_config(), "Cyfrin", "audit-2026-10-securitize-tempo-async-vault", "Manual Review, Formal Verification")
+    fill_report_source(str(tmp_path), make_config(), "Cyfrin", "audit-2026-10-securitize-tempo-async-vault", "Manual Review, Proprietary AI, Formal Verification")
 
     summary = (tmp_path / "summary_information.conf").read_text()
     assert "project_name = Tempo Async Vault\n" in summary
@@ -56,7 +56,7 @@ def test_fills_report_source(tmp_path):
     assert "project_github_2 = https://github.com/org/periphery\n" in summary
     assert f"commit_hash_2 = {'b' * 40}\n" in summary
     assert "review_timeline = Oct 4th - Oct 5th, 2026\n" in summary
-    assert "review_methods = Manual Review, Formal Verification\n" in summary
+    assert "review_methods = Manual Review, Proprietary AI, Formal Verification\n" in summary
     # untouched fields
     assert "report_version = 1.0\n" in summary
     assert "fix_commit_hash =\n" in summary

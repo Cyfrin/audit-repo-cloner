@@ -69,7 +69,7 @@ cp config.mixed.json.example config.json
 Everything else is derived. The title is `teamName projectName`, or just `projectName` if it already contains `teamName` (the same rule the report generator uses for the report title):
 - repo name: `audit-<startDate year-month>-<slugified title>`, e.g. `audit-2026-10-securitize-tempo-async-vault`
 - `review_timeline`: e.g. `Oct 4th - Oct 5th, 2026`
-- `review_methods`: `Manual Review`, plus `Formal Verification` if any auditor has the `Formal Verification` suffix in `auditors.json`
+- `review_methods`: `Manual Review, Proprietary AI`, plus `Formal Verification` if any auditor has the `Formal Verification` suffix in `auditors.json`. `Proprietary AI` also shows Dacian as Head of Security Research on the report title page; remove it from `review_methods` if it wasn't used
 
 The `Cyfrin/auditors` team gets admin access to the new repo, and any auditor who isn't in that team is invited with write access.
 
