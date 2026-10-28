@@ -136,7 +136,7 @@ def create_audit_repo(
         # Merge all submodules after all subtrees are added
         merge_submodules(repo_path)
 
-        repo = add_issue_template_to_repo(repo)
+        repo = add_issue_template_to_repo(repo, config.team_name)
         repo = add_lint_issues_workflow_to_repo(repo, branch_name=actual_branch)
         repo = replace_labels_in_repo(repo)
         repo = create_branches_for_auditors(repo, config.auditors, repo.get_commits()[0].sha)
@@ -750,7 +750,12 @@ def _read_template(filename: str) -> str:
         return f.read()
 
 
-def add_issue_template_to_repo(repo) -> Repository:
+def build_issue_template(team_name: str) -> str:
+    """Finding template with the client's response heading pre-filled; report-generator-template's linter expects `**<team_name>:**`"""
+    return ISSUE_TEMPLATE.replace("**[Project]:**", f"**{team_name}:**")
+
+
+def add_issue_template_to_repo(repo, team_name: str) -> Repository:
     # Get the existing finding.md file, if it exists
     try:
         finding_file = repo.get_contents(".github/ISSUE_TEMPLATE/finding.md")
@@ -759,7 +764,7 @@ def add_issue_template_to_repo(repo) -> Repository:
 
     # If finding.md already exists, leave it be. Otherwise, create the file.
     if finding_file is None:
-        repo.create_file(".github/ISSUE_TEMPLATE/finding.md", "finding.md", ISSUE_TEMPLATE)
+        repo.create_file(".github/ISSUE_TEMPLATE/finding.md", "finding.md", build_issue_template(team_name))
 
     # Disable the "Open a blank issue" link so non-maintainers can only file Findings.
     try:
